@@ -3,6 +3,7 @@ package co.edu.corhuila.multi_tour.operations_cost.adapters.http;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.security.JwtAuthFilter;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Departure;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.InvalidDataException;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Caller;
 import jakarta.servlet.http.HttpServletRequest;
@@ -13,7 +14,9 @@ import java.util.UUID;
 import org.slf4j.MDC;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -35,10 +38,32 @@ class DepartureController {
       String code, String status, Instant scheduledStart, Instant scheduledEnd, int capacity, int booked,
       List<String> vehicles, List<Object> reservations, List<Object> novelties) {}
 
-  private final ScheduleDeparture scheduleDeparture;
+  /** The body of {@code rescheduleDeparture}: the new start and estimated end, nothing else. */
+  record RescheduleDepartureRequest(Instant scheduledStart, Instant scheduledEnd) {}
 
-  DepartureController(ScheduleDeparture scheduleDeparture) {
+  private static final java.util.regex.Pattern CODE = java.util.regex.Pattern.compile("SAL-[0-9]{3,6}");
+
+  private final ScheduleDeparture scheduleDeparture;
+  private final RescheduleDeparture rescheduleDeparture;
+
+  DepartureController(ScheduleDeparture scheduleDeparture, RescheduleDeparture rescheduleDeparture) {
     this.scheduleDeparture = scheduleDeparture;
+    this.rescheduleDeparture = rescheduleDeparture;
+  }
+
+  @PutMapping(path = "/departures/{departureCode}/schedule", consumes = "application/json")
+  ResponseEntity<DepartureResponse> reschedule(
+      HttpServletRequest request, @PathVariable String departureCode, @RequestBody RescheduleDepartureRequest body) {
+    require(departureCode != null && CODE.matcher(departureCode).matches(), "departureCode");
+    require(body.scheduledStart() != null, "scheduledStart");
+    require(body.scheduledEnd() != null, "scheduledEnd");
+    Caller caller = (Caller) request.getAttribute(JwtAuthFilter.CALLER);
+    RescheduleDeparture.Rescheduled result = rescheduleDeparture.execute(new RescheduleDeparture.Command(
+        caller, departureCode, body.scheduledStart(), body.scheduledEnd(), MDC.get("traceId")));
+    Departure departure = result.departure();
+    return ResponseEntity.ok(new DepartureResponse(
+        departure.code(), departure.status().name(), departure.start(), departure.estimatedEnd(), result.capacity(), 0,
+        List.of(), List.of(), List.of()));
   }
 
   @PostMapping(path = "/departures", consumes = "application/json")
