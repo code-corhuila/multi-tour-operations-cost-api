@@ -8,7 +8,7 @@ import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
 import org.springframework.jdbc.core.simple.JdbcClient;
 
-/** Writes the event in the table of the schema, on the connection of the transaction that writes the change (ADR-004 D4). */
+/** Writes the event in the table of the schema (due from the moment it happened, by the clock of the service, not the one of the engine), on the connection of the transaction that writes the change (ADR-004 D4). */
 public final class JdbcOutbox implements Outbox {
 
   private final JdbcClient jdbc;
@@ -42,8 +42,8 @@ public final class JdbcOutbox implements Outbox {
     }
     jdbc.sql("""
             INSERT INTO outbox_event (outbox_event_id, tenant_id, event_type, aggregate_id, actor_id, correlation_id, payload,
-                                      occurred_at)
-            VALUES (:id, :tenant, :type, :aggregate, :actor, :trace, CAST(:payload AS jsonb), :at)
+                                      occurred_at, next_attempt_at)
+            VALUES (:id, :tenant, :type, :aggregate, :actor, :trace, CAST(:payload AS jsonb), :at, :at)
             """)
         .param("id", event.eventId())
         .param("tenant", event.tenantId())
