@@ -24,7 +24,7 @@ In the schema `operations_cost` of the single PostgreSQL instance of `multi-tour
 
 ## How to test it
 
-`mvn -B verify` with Java 21; the persistence tests need a PostgreSQL with the schema of `multi-tour-operations-cost-db`, which `sh scripts/prepare-test-db.sh up` makes (a throwaway container) and prints as `TEST_DATABASE_URL`; without it they are skipped, and the CI fails if any was. `sh deploy/tests/deploy-check.sh` tests the image. Both run on every pull request to `develop` and `qa` (`ci.yml`). The code coverage floor (JaCoCo) comes in its own change.
+`mvn -B verify` with Java 21; the persistence tests need a PostgreSQL with the schema of `multi-tour-operations-cost-db`, which `sh scripts/prepare-test-db.sh up` makes (a throwaway container) and prints as `TEST_DATABASE_URL`; without it they are skipped, and the CI fails if any was. `sh deploy/tests/deploy-check.sh` tests the image. Both run on every pull request to `develop` and `qa` (`ci.yml`). JaCoCo measures the line coverage of every module and `core`, the domain, fails the build under 95 % (it was 99.6 % when the floor was set); `adapters` is measured too, but most of its tests live in `app` and the persistence ones need `TEST_DATABASE_URL`, so it has no floor of its own. The report is in `<module>/target/site/jacoco/`.
 
 ## What is missing
 

@@ -26,4 +26,25 @@
     <module>adapters</module>
     <module>app</module>
   </modules>
+
+  <build>
+    <plugins>
+      <!-- The version is the one Spring Boot manages. Every module measures its line coverage; core holds the floor (core/pom.xml). -->
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+        <executions>
+          <execution>
+            <id>prepare-agent</id>
+            <goals><goal>prepare-agent</goal></goals>
+          </execution>
+          <execution>
+            <id>report</id>
+            <phase>verify</phase>
+            <goals><goal>report</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
 </project>
