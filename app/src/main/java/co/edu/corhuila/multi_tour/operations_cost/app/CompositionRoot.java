@@ -1,9 +1,26 @@
 package co.edu.corhuila.multi_tour.operations_cost.app;
 
+import co.edu.corhuila.multi_tour.operations_cost.adapters.catalog.HttpCatalog;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcDepartureRepository;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcIdempotencyKeys;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutbox;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcTransaction;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.Catalog;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureRepository;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdGenerator;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdempotencyKeys;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.Transaction;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 import java.time.Clock;
+import java.time.Duration;
+import java.util.UUID;
 import javax.sql.DataSource;
+import org.springframework.jdbc.core.simple.JdbcClient;
+import org.springframework.jdbc.datasource.DataSourceTransactionManager;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -42,6 +59,44 @@ class CompositionRoot {
     config.setConnectionInitSql("SET statement_timeout = 5000");
     config.setInitializationFailTimeout(-1);
     return new HikariDataSource(config);
+  }
+
+  @Bean
+  DepartureRepository departureRepository(JdbcClient jdbc) {
+    return new JdbcDepartureRepository(jdbc);
+  }
+
+  @Bean
+  Outbox outbox(JdbcClient jdbc, ObjectMapper json) {
+    return new JdbcOutbox(jdbc, json);
+  }
+
+  @Bean
+  IdempotencyKeys idempotencyKeys(JdbcClient jdbc) {
+    return new JdbcIdempotencyKeys(jdbc);
+  }
+
+  @Bean
+  Transaction transaction(DataSource dataSource) {
+    return new JdbcTransaction(new DataSourceTransactionManager(dataSource));
+  }
+
+  /** The catalog of commercial-reservation, read with the credential of the request, 3 s at most (plan D-05). */
+  @Bean
+  Catalog catalog(@Value("${COMMERCIAL_RESERVATION_BASE_URL:}") String baseUrl, HttpCatalog.Credentials credentials) {
+    return new HttpCatalog(baseUrl, Duration.ofSeconds(3), credentials);
+  }
+
+  @Bean
+  IdGenerator idGenerator() {
+    return UUID::randomUUID;
+  }
+
+  @Bean
+  ScheduleDeparture scheduleDeparture(
+      DepartureRepository departures, Outbox outbox, IdempotencyKeys keys, Catalog catalog, Transaction transaction,
+      IdGenerator ids, Clock clock) {
+    return new ScheduleDeparture(departures, outbox, keys, catalog, transaction, ids, clock);
   }
 
   public static void main(String[] args) {

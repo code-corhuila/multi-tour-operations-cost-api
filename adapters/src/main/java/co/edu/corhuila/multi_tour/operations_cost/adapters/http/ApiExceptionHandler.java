@@ -1,5 +1,10 @@
 package co.edu.corhuila.multi_tour.operations_cost.adapters.http;
 
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.BusinessRuleViolationException;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.DependencyUnavailableException;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.InvalidDataException;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.InvalidStatusTransitionException;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.CallerNotAllowedException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
 import java.util.List;
@@ -53,6 +58,34 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
     answer.putAll(headers);
     answer.setContentType(MediaType.APPLICATION_JSON);
     return new ResponseEntity<>(ErrorBody.of(status, CorrelationIdFilter.current()), answer, status);
+  }
+
+  /** What the core refuses is told in the words the core wrote for the caller; none of them carries an internal detail. */
+  @ExceptionHandler(InvalidDataException.class)
+  ResponseEntity<Object> invalidData(InvalidDataException e) {
+    return answer(HttpStatus.BAD_REQUEST, "VALIDATION_ERROR", "The request is not valid",
+        e.field() == null ? null : List.of(new ErrorBody.Detail(e.field(), e.getMessage())));
+  }
+
+  @ExceptionHandler(BusinessRuleViolationException.class)
+  ResponseEntity<Object> businessRule(BusinessRuleViolationException e) {
+    return answer(HttpStatus.UNPROCESSABLE_ENTITY, "BUSINESS_RULE_VIOLATION", e.getMessage(), null);
+  }
+
+  @ExceptionHandler(InvalidStatusTransitionException.class)
+  ResponseEntity<Object> invalidTransition(InvalidStatusTransitionException e) {
+    return answer(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_STATUS_TRANSITION", e.getMessage(), null);
+  }
+
+  @ExceptionHandler(CallerNotAllowedException.class)
+  ResponseEntity<Object> callerNotAllowed(CallerNotAllowedException e) {
+    return answer(HttpStatus.FORBIDDEN, "FORBIDDEN", e.getMessage(), null);
+  }
+
+  /** Another domain did not answer well; the cause went to the log where it happened. */
+  @ExceptionHandler(DependencyUnavailableException.class)
+  ResponseEntity<Object> unavailable(DependencyUnavailableException e) {
+    return answer(HttpStatus.SERVICE_UNAVAILABLE, "SERVICE_UNAVAILABLE", "A service this operation needs is not available; try again", null);
   }
 
   private ResponseEntity<Object> answer(HttpStatus status, String code, String message, List<ErrorBody.Detail> details) {

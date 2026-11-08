@@ -42,6 +42,12 @@ class DatabaseConfigTest extends ShellTest {
         .satisfies(failure -> assertThat(trace(failure)).doesNotContain("secret"));
   }
 
+  @Test
+  void C_start_fails_without_the_address_of_the_catalog() {
+    assertThatThrownBy(() -> start(List.of("--DATABASE_URL=jdbc:postgresql://localhost:5432/unused", "--COMMERCIAL_RESERVATION_BASE_URL=")))
+        .hasStackTraceContaining("COMMERCIAL_RESERVATION_BASE_URL");
+  }
+
   private static String trace(Throwable failure) {
     java.io.StringWriter text = new java.io.StringWriter();
     failure.printStackTrace(new java.io.PrintWriter(text));
@@ -49,8 +55,14 @@ class DatabaseConfigTest extends ShellTest {
   }
 
   private static void start(List<String> properties) {
-    List<String> args = new ArrayList<>(List.of("--server.port=0", "--DATABASE_URL=", "--JWT_PUBLIC_KEY=" + Tokens.publicKeyPem()));
-    args.addAll(properties);
+    List<String> args = new ArrayList<>(List.of("--server.port=0", "--DATABASE_URL=", "--COMMERCIAL_RESERVATION_BASE_URL=http://localhost:8083",
+        "--JWT_PUBLIC_KEY=" + Tokens.publicKeyPem()));
+    // an argument given twice is read as a list ("a,b"), so a property that is overridden replaces the default
+    for (String override : properties) {
+      String name = override.substring(0, override.indexOf('=') + 1);
+      args.removeIf(arg -> arg.startsWith(name));
+      args.add(override);
+    }
     SpringApplication.run(CompositionRoot.class, args.toArray(String[]::new)).close();
   }
 }
