@@ -14,6 +14,10 @@
 
   <dependencies>
     <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+    <dependency>
       <groupId>co.edu.corhuila.multi_tour</groupId>
       <artifactId>operations-cost-core</artifactId>
       <version>${project.version}</version>
