@@ -101,6 +101,20 @@ class ScheduleDepartureRouteTest extends ShellTest {
   }
 
   @Test
+  // Only the fields it lacks: a value of the wrong type or a field not declared is refused by the JSON reader before any key is read (gap G-API-17).
+  void C_a_repeat_with_the_same_key_answers_200_whatever_fields_it_lacks() {
+    Response first = as(admin(), "key-0001-abcdef").filter(Contract.filter()).body(body()).post(ROUTE);
+    Map<String, Object> incomplete = body();
+    incomplete.remove("scheduledEnd");
+    incomplete.remove("timeZone");
+    Response repeat = as(admin(), "key-0001-abcdef").filter(Contract.answers()).body(incomplete).post(ROUTE);
+    assertThat(repeat.statusCode()).isEqualTo(200);
+    assertThat(repeat.jsonPath().getString("code")).isEqualTo(first.jsonPath().getString("code"));
+    assertThat(world.departures).hasSize(1);
+    assertThat(world.events).hasSize(1);
+  }
+
+  @Test
   void C_a_correlation_id_sent_is_the_trace_id_of_the_event() {
     Response response = as(admin(), "key-0001-abcdef").header("X-Correlation-Id", "trace-from-the-caller").body(body()).post(ROUTE);
     assertThat(response.statusCode()).isEqualTo(201);
