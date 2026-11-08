@@ -1,0 +1,9 @@
+target/
+*.class
+.idea/
+*.iml
+# Secrets and keys never enter this repository (constitution, Article XI).
+.env
+.env.*
+!.env.example
+*.pem
