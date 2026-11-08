@@ -10,6 +10,8 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdempotencyKeys
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.OutboxEvent;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDeparture;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Transaction;
 import java.time.Clock;
 import java.util.ArrayList;
@@ -28,7 +30,7 @@ import org.springframework.context.annotation.Primary;
  * The ports of the departure in memory, in place of the database and of the catalog of another domain, so the route is tried
  * on its own: how the real adapters behave is the business of their own tests (the database, the catalog).
  */
-final class InMemoryWorld implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Transaction {
+final class InMemoryWorld implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction {
 
   /** One for the whole test run: the beans of the configuration below are this one. */
   static final InMemoryWorld WORLD = new InMemoryWorld();
@@ -37,6 +39,8 @@ final class InMemoryWorld implements DepartureRepository, Outbox, IdempotencyKey
   final List<OutboxEvent> events = new ArrayList<>();
   final Map<String, UUID> keys = new HashMap<>();
   final Map<UUID, CatalogTour> tours = new HashMap<>();
+  final Map<UUID, Reservations.Seats> seats = new HashMap<>();
+  volatile boolean reservationsDown;
   volatile boolean catalogDown;
   volatile int catalogCalls;
 
@@ -47,6 +51,8 @@ final class InMemoryWorld implements DepartureRepository, Outbox, IdempotencyKey
       keys.clear();
       tours.clear();
       catalogDown = false;
+      seats.clear();
+      reservationsDown = false;
       catalogCalls = 0;
     }
   }
@@ -105,6 +111,14 @@ final class InMemoryWorld implements DepartureRepository, Outbox, IdempotencyKey
   }
 
   @Override
+  public Optional<Reservations.Seats> seatsOf(UUID serviceId, UUID departureId) {
+    if (reservationsDown) {
+      throw new DependencyUnavailableException("reservations");
+    }
+    return Optional.ofNullable(seats.get(departureId));
+  }
+
+  @Override
   public Optional<CatalogTour> tour(UUID serviceId) {
     catalogCalls++;
     if (catalogDown) {
@@ -121,6 +135,12 @@ final class InMemoryWorld implements DepartureRepository, Outbox, IdempotencyKey
     @Primary
     ScheduleDeparture testScheduleDeparture() {
       return new ScheduleDeparture(WORLD, WORLD, WORLD, WORLD, WORLD, UUID::randomUUID, Clock.systemUTC());
+    }
+
+    @Bean
+    @Primary
+    RescheduleDeparture testRescheduleDeparture() {
+      return new RescheduleDeparture(WORLD, WORLD, WORLD, WORLD, WORLD, UUID::randomUUID, Clock.systemUTC());
     }
   }
 }

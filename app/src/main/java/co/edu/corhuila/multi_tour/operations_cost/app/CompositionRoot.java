@@ -1,6 +1,7 @@
 package co.edu.corhuila.multi_tour.operations_cost.app;
 
 import co.edu.corhuila.multi_tour.operations_cost.adapters.catalog.HttpCatalog;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.catalog.HttpReservations;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcDepartureRepository;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcIdempotencyKeys;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutbox;
@@ -10,6 +11,8 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureReposi
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdGenerator;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdempotencyKeys;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDeparture;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Transaction;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -85,6 +88,19 @@ class CompositionRoot {
   @Bean
   Catalog catalog(@Value("${COMMERCIAL_RESERVATION_BASE_URL:}") String baseUrl, HttpCatalog.Credentials credentials) {
     return new HttpCatalog(baseUrl, Duration.ofSeconds(3), credentials);
+  }
+
+  /** The seats of a departure, read from the same service with the credential of the request (decision D2 of spec 002). */
+  @Bean
+  Reservations reservations(@Value("${COMMERCIAL_RESERVATION_BASE_URL:}") String baseUrl, HttpCatalog.Credentials credentials) {
+    return new HttpReservations(baseUrl, Duration.ofSeconds(3), credentials);
+  }
+
+  @Bean
+  RescheduleDeparture rescheduleDeparture(
+      DepartureRepository departures, Outbox outbox, Reservations reservations, Catalog catalog, Transaction transaction,
+      IdGenerator ids, Clock clock) {
+    return new RescheduleDeparture(departures, outbox, reservations, catalog, transaction, ids, clock);
   }
 
   @Bean
