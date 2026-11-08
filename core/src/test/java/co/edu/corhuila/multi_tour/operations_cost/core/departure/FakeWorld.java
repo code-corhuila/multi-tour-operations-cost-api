@@ -1,16 +1,26 @@
 package co.edu.corhuila.multi_tour.operations_cost.core.departure;
 
+import co.edu.corhuila.multi_tour.operations_cost.core.outbox.Page;
+import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.Vehicle;
+import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.VehicleKeys;
+import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.Vehicles;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 import java.util.function.Supplier;
 
 /** The ports of the departure as in-memory fakes, with a transaction that puts everything back when it fails. */
-final class FakeWorld implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, IdGenerator {
+final class FakeWorld
+    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, IdGenerator, Vehicles, VehicleKeys {
 
   final Map<UUID, Departure> departures = new LinkedHashMap<>();
   final List<OutboxEvent> events = new ArrayList<>();
@@ -21,6 +31,9 @@ final class FakeWorld implements DepartureRepository, Outbox, IdempotencyKeys, C
   boolean updateRefused;
   int reservationCalls;
   boolean catalogDown;
+  final Map<UUID, Vehicle> vehicleRows = new LinkedHashMap<>();
+  final Map<UUID, Set<UUID>> assignments = new HashMap<>();
+  final Map<String, UUID> vehicleKeys = new HashMap<>();
   boolean outboxFails;
   UUID racedDeparture;
   private final Map<String, UUID> committedByOthers = new HashMap<>();
@@ -32,6 +45,10 @@ final class FakeWorld implements DepartureRepository, Outbox, IdempotencyKeys, C
     Map<UUID, Departure> departuresBefore = new LinkedHashMap<>(departures);
     List<OutboxEvent> eventsBefore = new ArrayList<>(events);
     Map<String, UUID> keysBefore = new HashMap<>(keys);
+    Map<UUID, Vehicle> vehiclesBefore = new LinkedHashMap<>(vehicleRows);
+    Map<UUID, Set<UUID>> assignmentsBefore = new HashMap<>();
+    assignments.forEach((departure, ids) -> assignmentsBefore.put(departure, new LinkedHashSet<>(ids)));
+    Map<String, UUID> vehicleKeysBefore = new HashMap<>(vehicleKeys);
     try {
       return work.get();
     } catch (RuntimeException failed) {
@@ -42,6 +59,12 @@ final class FakeWorld implements DepartureRepository, Outbox, IdempotencyKeys, C
       keys.clear();
       keys.putAll(keysBefore);
       keys.putAll(committedByOthers);
+      vehicleRows.clear();
+      vehicleRows.putAll(vehiclesBefore);
+      assignments.clear();
+      assignments.putAll(assignmentsBefore);
+      vehicleKeys.clear();
+      vehicleKeys.putAll(vehicleKeysBefore);
       throw failed;
     }
   }
@@ -120,6 +143,62 @@ final class FakeWorld implements DepartureRepository, Outbox, IdempotencyKeys, C
       throw new DependencyUnavailableException("catalog");
     }
     return Optional.ofNullable(tours.get(serviceId));
+  }
+
+  @Override
+  public void save(Vehicle vehicle) {
+    vehicleRows.put(vehicle.id(), vehicle);
+  }
+
+  @Override
+  public boolean nameTaken(UUID tenantId, String name) {
+    return vehicleRows.values().stream()
+        .anyMatch(v -> v.tenantId().equals(tenantId) && v.name().equalsIgnoreCase(name.strip()));
+  }
+
+  @Override
+  public Page<Vehicle> list(UUID tenantId, int page, int limit) {
+    List<Vehicle> all = vehicleRows.values().stream().filter(v -> v.tenantId().equals(tenantId))
+        .sorted(Comparator.comparing(v -> v.name().toLowerCase())).toList();
+    int from = Math.min((page - 1) * limit, all.size());
+    return new Page<>(all.subList(from, Math.min(from + limit, all.size())), page, limit, all.size());
+  }
+
+  @Override
+  public List<Vehicle> lockAll(UUID tenantId, Collection<UUID> ids) {
+    return ids.stream().sorted().map(vehicleRows::get).filter(v -> v != null && v.tenantId().equals(tenantId)).toList();
+  }
+
+  @Override
+  public List<Vehicle> ofDeparture(UUID tenantId, UUID departureId) {
+    return assignments.getOrDefault(departureId, Set.of()).stream().map(vehicleRows::get)
+        .filter(v -> v != null && v.tenantId().equals(tenantId)).toList();
+  }
+
+  @Override
+  public Optional<String> overlapping(UUID tenantId, Collection<UUID> vehicleIds, Instant start, Instant end, UUID except) {
+    return assignments.entrySet().stream()
+        .filter(e -> !e.getKey().equals(except) && e.getValue().stream().anyMatch(vehicleIds::contains))
+        .map(e -> departures.get(e.getKey()))
+        .filter(d -> d != null && d.tenantId().equals(tenantId)
+            && (d.status() == DepartureStatus.SCHEDULED || d.status() == DepartureStatus.IN_EXECUTION)
+            && start.isBefore(d.estimatedEnd()) && d.start().isBefore(end))
+        .map(Departure::code).findFirst();
+  }
+
+  @Override
+  public void assign(UUID tenantId, UUID departureId, Collection<UUID> vehicleIds, UUID by, Instant at) {
+    assignments.computeIfAbsent(departureId, id -> new LinkedHashSet<>()).addAll(vehicleIds);
+  }
+
+  @Override
+  public Optional<UUID> vehicleOf(UUID tenantId, String key) {
+    return Optional.ofNullable(vehicleKeys.get(tenantId + "/" + key));
+  }
+
+  @Override
+  public void registerVehicle(UUID tenantId, String key, UUID vehicleId) {
+    vehicleKeys.put(tenantId + "/" + key, vehicleId);
   }
 
   @Override
