@@ -101,7 +101,8 @@ class ScheduleDepartureRouteTest extends ShellTest {
   }
 
   @Test
-  void C_a_repeat_with_the_same_key_answers_200_without_looking_at_the_body() {
+  // Only the fields it lacks: a value of the wrong type or a field not declared is refused by the JSON reader before any key is read (gap G-API-17).
+  void C_a_repeat_with_the_same_key_answers_200_whatever_fields_it_lacks() {
     Response first = as(admin(), "key-0001-abcdef").filter(Contract.filter()).body(body()).post(ROUTE);
     Map<String, Object> incomplete = body();
     incomplete.remove("scheduledEnd");
@@ -110,6 +111,7 @@ class ScheduleDepartureRouteTest extends ShellTest {
     assertThat(repeat.statusCode()).isEqualTo(200);
     assertThat(repeat.jsonPath().getString("code")).isEqualTo(first.jsonPath().getString("code"));
     assertThat(world.departures).hasSize(1);
+    assertThat(world.events).hasSize(1);
   }
 
   @Test
