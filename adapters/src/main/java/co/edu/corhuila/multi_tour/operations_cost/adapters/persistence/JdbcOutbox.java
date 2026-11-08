@@ -20,6 +20,19 @@ public final class JdbcOutbox implements Outbox {
   }
 
   @Override
+  public boolean waiting(java.util.UUID tenantId, java.util.UUID aggregateId, String eventType) {
+    return jdbc.sql("""
+            SELECT EXISTS (SELECT 1 FROM outbox_event
+                            WHERE tenant_id = :tenant AND aggregate_id = :aggregate AND event_type = :type AND status = 'PENDING')
+            """)
+        .param("tenant", tenantId)
+        .param("aggregate", aggregateId)
+        .param("type", eventType)
+        .query(Boolean.class)
+        .single();
+  }
+
+  @Override
   public void add(OutboxEvent event) {
     String payload;
     try {
