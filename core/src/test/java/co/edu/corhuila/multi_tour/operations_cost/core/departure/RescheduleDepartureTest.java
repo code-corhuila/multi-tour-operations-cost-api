@@ -256,7 +256,7 @@ class RescheduleDepartureTest {
     world.onLock = () -> world.departures.put(ID,
         new Departure(ID, TENANT, "SAL-001", TOUR, START, END, "America/Bogota", DepartureStatus.CANCELLED, ACCOUNT, NOW));
     assertThatThrownBy(() -> reschedule.execute(command("SAL-001", newStart, newEnd))).isInstanceOf(BusinessRuleViolationException.class);
-    assertThat(world.departures.get(ID).status()).isEqualTo(DepartureStatus.CANCELLED);
+    assertThat(world.departures.get(ID).start()).isEqualTo(START);
     assertThat(world.events).isEmpty();
   }
 }
