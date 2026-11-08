@@ -6,10 +6,12 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Caller;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.CallerNotAllowedException;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Role;
+import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.Vehicle;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.LinkedHashSet;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,7 +39,7 @@ class RescheduleDepartureTest {
     world.tours.put(TOUR, new CatalogTour(TOUR, CatalogTour.Type.TOUR, true, 12));
     world.departures.put(ID, new Departure(ID, TENANT, "SAL-001", TOUR, START, END, "America/Bogota", DepartureStatus.SCHEDULED, ACCOUNT, NOW));
     world.seats.put(ID, new Reservations.Seats(12, 0));
-    reschedule = new RescheduleDeparture(world, world, world, world, world, world, Clock.fixed(NOW, ZoneOffset.UTC));
+    reschedule = new RescheduleDeparture(world, world, world, world, world, world, world, Clock.fixed(NOW, ZoneOffset.UTC));
   }
 
   private RescheduleDeparture.Command command(String code, Instant start, Instant end) {
@@ -202,6 +204,59 @@ class RescheduleDepartureTest {
       assertThatThrownBy(() -> reschedule.execute(new RescheduleDeparture.Command(admin, "SAL-001", newStart, newEnd, bad)))
           .isInstanceOf(InvalidDataException.class);
     }
+    assertThat(world.events).isEmpty();
+  }
+
+  // ---- HU-OPS-002 (api spec 003, AC-API-03.6): a change of date also looks at the vehicles of the departure
+  private Vehicle assignedVehicle() {
+    Vehicle van = new Vehicle(new UUID(0, 2001), TENANT, "Van 1", 12, ACCOUNT, NOW);
+    world.vehicleRows.put(van.id(), van);
+    world.assignments.put(ID, new LinkedHashSet<>(Set.of(van.id())));
+    return van;
+  }
+
+  private void otherWithVehicle(Vehicle van, Instant start, Instant end) {
+    Departure other = new Departure(new UUID(0, 1002), TENANT, "SAL-002", TOUR, start, end, "America/Bogota", DepartureStatus.SCHEDULED, ACCOUNT, NOW);
+    world.departures.put(other.id(), other);
+    world.assignments.put(other.id(), new LinkedHashSet<>(Set.of(van.id())));
+  }
+
+  @Test
+  void A_a_change_that_makes_a_vehicle_overlap_another_departure_is_refused_and_nothing_changes() {
+    Vehicle van = assignedVehicle();
+    otherWithVehicle(van, newStart.plus(Duration.ofHours(1)), newEnd.plus(Duration.ofHours(1)));
+    assertThatThrownBy(() -> reschedule.execute(command("SAL-001", newStart, newEnd)))
+        .isInstanceOf(BusinessRuleViolationException.class).hasMessageContaining("SAL-002");
+    assertThat(world.departures.get(ID).start()).isEqualTo(START);
+    assertThat(world.events).isEmpty();
+  }
+
+  @Test
+  void A_a_change_with_vehicles_and_no_overlap_goes_through_and_answers_the_vehicles() {
+    Vehicle van = assignedVehicle();
+    otherWithVehicle(van, newEnd, newEnd.plus(Duration.ofHours(8)));
+    RescheduleDeparture.Rescheduled result = reschedule.execute(command("SAL-001", newStart, newEnd));
+    assertThat(result.changed()).isTrue();
+    assertThat(result.vehicles()).containsExactly(van);
+  }
+
+  @Test
+  void A_a_vehicle_assigned_while_the_request_ran_is_also_checked() {
+    Vehicle van = new Vehicle(new UUID(0, 2001), TENANT, "Van 1", 12, ACCOUNT, NOW);
+    world.vehicleRows.put(van.id(), van);
+    otherWithVehicle(van, newStart.plus(Duration.ofHours(1)), newEnd.plus(Duration.ofHours(1)));
+    world.onLock = () -> world.assignments.put(ID, new LinkedHashSet<>(Set.of(van.id())));
+    assertThatThrownBy(() -> reschedule.execute(command("SAL-001", newStart, newEnd)))
+        .isInstanceOf(BusinessRuleViolationException.class).hasMessageContaining("SAL-002");
+    assertThat(world.departures.get(ID).start()).isEqualTo(START);
+  }
+
+  @Test
+  void A_a_departure_changed_while_the_request_ran_is_not_overwritten() {
+    world.onLock = () -> world.departures.put(ID,
+        new Departure(ID, TENANT, "SAL-001", TOUR, START, END, "America/Bogota", DepartureStatus.CANCELLED, ACCOUNT, NOW));
+    assertThatThrownBy(() -> reschedule.execute(command("SAL-001", newStart, newEnd))).isInstanceOf(BusinessRuleViolationException.class);
+    assertThat(world.departures.get(ID).status()).isEqualTo(DepartureStatus.CANCELLED);
     assertThat(world.events).isEmpty();
   }
 }
