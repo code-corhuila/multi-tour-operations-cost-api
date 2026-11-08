@@ -25,3 +25,10 @@ jobs:
           java-version: '21'
           cache: maven
       - run: mvn -B verify
+      - name: Build the image, start it and check what it publishes
+        # Same versions as the defaults of the script, from registries without the anonymous limit of
+        # Docker Hub, which a shared runner address reaches (429 Too Many Requests)
+        env:
+          MAVEN_IMAGE: public.ecr.aws/docker/library/maven:3.9.9-eclipse-temurin-21
+          JRE_IMAGE: public.ecr.aws/docker/library/eclipse-temurin:21.0.8_9-jre
+        run: sh deploy/tests/deploy-check.sh
