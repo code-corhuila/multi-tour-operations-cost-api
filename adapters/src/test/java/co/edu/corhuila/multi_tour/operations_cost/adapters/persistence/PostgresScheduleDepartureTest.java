@@ -50,8 +50,16 @@ class PostgresScheduleDepartureTest extends PostgresTest {
   @Test
   void I_a_failed_write_of_the_event_leaves_no_departure_and_no_key() {
     UUID tenant = UUID.randomUUID();
-    var failing = (co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox) event -> {
-      throw new IllegalStateException("the outbox is down");
+    var failing = new co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox() {
+      @Override
+      public void add(co.edu.corhuila.multi_tour.operations_cost.core.departure.OutboxEvent event) {
+        throw new IllegalStateException("the outbox is down");
+      }
+
+      @Override
+      public boolean waiting(UUID tenantId, UUID aggregateId, String eventType) {
+        return false;
+      }
     };
     assertThatThrownBy(() -> useCase(failing).execute(command(tenant, "key-" + UUID.randomUUID())))
         .isInstanceOf(IllegalStateException.class);

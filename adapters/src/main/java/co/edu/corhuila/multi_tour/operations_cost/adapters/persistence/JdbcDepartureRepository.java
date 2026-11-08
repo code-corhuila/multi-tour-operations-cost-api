@@ -58,25 +58,56 @@ public final class JdbcDepartureRepository implements DepartureRepository {
 
   @Override
   public Optional<Departure> find(UUID tenantId, UUID id) {
-    return jdbc.sql("""
-            SELECT salida_id, tenant_id, code, service_id, starts_at, estimated_end_at, time_zone, status, scheduled_by,
-                   scheduled_at
-              FROM salida WHERE tenant_id = :tenant AND salida_id = :id
-            """)
+    return jdbc.sql(SELECT + " WHERE tenant_id = :tenant AND salida_id = :id")
         .param("tenant", tenantId)
         .param("id", id)
-        .query((rs, row) -> new Departure(
-            rs.getObject("salida_id", UUID.class),
-            rs.getObject("tenant_id", UUID.class),
-            rs.getString("code"),
-            rs.getObject("service_id", UUID.class),
-            rs.getObject("starts_at", OffsetDateTime.class).toInstant(),
-            rs.getObject("estimated_end_at", OffsetDateTime.class).toInstant(),
-            rs.getString("time_zone"),
-            DepartureStatus.valueOf(rs.getString("status")),
-            rs.getObject("scheduled_by", UUID.class),
-            rs.getObject("scheduled_at", OffsetDateTime.class).toInstant()))
+        .query(DepartureRow.MAPPER)
         .optional();
+  }
+
+  @Override
+  public Optional<Departure> findByCode(UUID tenantId, String code) {
+    return jdbc.sql(SELECT + " WHERE tenant_id = :tenant AND code = :code")
+        .param("tenant", tenantId)
+        .param("code", code)
+        .query(DepartureRow.MAPPER)
+        .optional();
+  }
+
+  /** The state and the dates that were read are the condition: a change decided on a stale reading writes nothing. */
+  @Override
+  public boolean updateSchedule(Departure from, Departure to) {
+    return jdbc.sql("""
+            UPDATE salida SET starts_at = :start, estimated_end_at = :end
+             WHERE tenant_id = :tenant AND salida_id = :id AND status = 'SCHEDULED'
+               AND starts_at = :oldStart AND estimated_end_at = :oldEnd
+            """)
+        .param("start", utc(to.start()))
+        .param("end", utc(to.estimatedEnd()))
+        .param("oldStart", utc(from.start()))
+        .param("oldEnd", utc(from.estimatedEnd()))
+        .param("tenant", from.tenantId())
+        .param("id", from.id())
+        .update() == 1;
+  }
+
+  private static final String SELECT = """
+      SELECT salida_id, tenant_id, code, service_id, starts_at, estimated_end_at, time_zone, status, scheduled_by,
+             scheduled_at
+        FROM salida""";
+
+  private static final class DepartureRow {
+    static final org.springframework.jdbc.core.RowMapper<Departure> MAPPER = (rs, row) -> new Departure(
+        rs.getObject("salida_id", UUID.class),
+        rs.getObject("tenant_id", UUID.class),
+        rs.getString("code"),
+        rs.getObject("service_id", UUID.class),
+        rs.getObject("starts_at", OffsetDateTime.class).toInstant(),
+        rs.getObject("estimated_end_at", OffsetDateTime.class).toInstant(),
+        rs.getString("time_zone"),
+        DepartureStatus.valueOf(rs.getString("status")),
+        rs.getObject("scheduled_by", UUID.class),
+        rs.getObject("scheduled_at", OffsetDateTime.class).toInstant());
   }
 
   private static OffsetDateTime utc(Instant instant) {
