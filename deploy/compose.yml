@@ -14,6 +14,8 @@ services:
       # the address of the single PostgreSQL instance and the user operations_cost_app (never the administrator);
       # an empty address stops the service at start
       DATABASE_URL: ${OPERATIONS_COST_DATABASE_URL:-}
+      # commercial-reservation owns the catalog of the tours; the address is the platform's to give (glue of infra-postgres)
+      COMMERCIAL_RESERVATION_BASE_URL: ${COMMERCIAL_RESERVATION_BASE_URL:-}
       DATABASE_USER: operations_cost_app
       DATABASE_PASSWORD: ${OPERATIONS_COST_APP_PASSWORD:-}
     expose: ["8084"]
