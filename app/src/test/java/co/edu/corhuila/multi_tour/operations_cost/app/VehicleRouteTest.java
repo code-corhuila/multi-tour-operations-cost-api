@@ -145,8 +145,9 @@ class VehicleRouteTest extends ShellTest {
 
   @Test
   void C_lists_the_vehicles_of_the_tenant_sorted_by_name_in_pages() {
+    int n = 0;
     for (String name : List.of("bus", "Van A", "Boat")) {
-      as(admin(), "key-" + name + "-abcdef").body(body(name, 10)).post(ROUTE);
+      as(admin(), "key-000" + (++n) + "-abcdef").body(body(name, 10)).post(ROUTE);
     }
     as(token("TENANT_ADMINISTRATOR", OTHER_TENANT, ACCOUNT.toString()), "key-other-abcdef").body(body("Other", 5)).post(ROUTE);
     Response first = as(admin(), null).filter(Contract.filter()).queryParam("page", 1).queryParam("limit", 2).get(ROUTE);
