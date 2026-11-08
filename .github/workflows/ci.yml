@@ -24,7 +24,24 @@ jobs:
           distribution: temurin
           java-version: '21'
           cache: maven
+      - name: Prepare the database the integration tests run against
+        # The database is the one multi-tour-operations-cost-db builds (norm 5.2.1). The commit of that repository the tests
+        # run against is moved on purpose, with the change here that needs it. PostgreSQL from a registry without the
+        # anonymous limit of Docker Hub (429 Too Many Requests)
+        env:
+          POSTGRES_IMAGE: public.ecr.aws/docker/library/postgres:18.6-alpine
+          DB_REPO_REF: 278028357b1503928945f0e7c134b45743d85f81
+        run: |
+          url=$(sh scripts/prepare-test-db.sh up)
+          echo "::add-mask::$url"
+          echo "TEST_DATABASE_URL=$url" >> "$GITHUB_ENV"
       - run: mvn -B verify
+      - name: The integration tests ran and none was skipped
+        run: |
+          reports=$(ls adapters/target/surefire-reports/*Postgres*Test.txt)
+          for report in $reports; do
+            grep -h "Tests run" "$report" | grep -Eq "Tests run: [1-9][0-9]*, Failures: 0, Errors: 0, Skipped: 0"               || { echo "$report: tests were skipped or did not run"; exit 1; }
+          done
       - name: Build the image, start it and check what it publishes
         # Same versions as the defaults of the script, from registries without the anonymous limit of
         # Docker Hub, which a shared runner address reaches (429 Too Many Requests)

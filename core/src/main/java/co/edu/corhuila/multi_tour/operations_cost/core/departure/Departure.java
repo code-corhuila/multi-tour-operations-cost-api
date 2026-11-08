@@ -2,6 +2,7 @@ package co.edu.corhuila.multi_tour.operations_cost.core.departure;
 
 import java.time.Instant;
 import java.time.ZoneId;
+import java.time.temporal.ChronoUnit;
 import java.util.Objects;
 import java.util.UUID;
 import java.util.regex.Pattern;
@@ -29,6 +30,10 @@ public record Departure(
 
   /** Every way of building a departure, the reading of a stored one included, checks what the engine also checks. */
   public Departure {
+    // the database keeps microseconds: what is answered the first time is what is read back later
+    start = start == null ? null : start.truncatedTo(ChronoUnit.MICROS);
+    estimatedEnd = estimatedEnd == null ? null : estimatedEnd.truncatedTo(ChronoUnit.MICROS);
+    scheduledAt = scheduledAt == null ? null : scheduledAt.truncatedTo(ChronoUnit.MICROS);
     require(id != null, "id");
     require(tenantId != null, "tenantId");
     require(code != null && CODE.matcher(code).matches(), "code");
