@@ -171,4 +171,35 @@ class StartDepartureTest {
     assertThatThrownBy(() -> start.execute(new StartDeparture.Command(person, "SAL-001", KEY, NOW, " ")))
         .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("X-Correlation-Id"));
   }
+
+  @Test
+  void A_two_starts_with_the_same_key_answer_the_winner_to_the_loser() {
+    Departure winner = departure.start(NOW.minus(Duration.ofMinutes(30)), ACCOUNT, NOW);
+    world.onLock = () -> {
+      world.departures.put(departure.id(), winner);
+      world.keys.put(TENANT + "/registerStart/" + KEY, departure.id());
+    };
+    StartDeparture.Started loser = start.execute(command("SAL-001", KEY, NOW.minus(Duration.ofMinutes(10))));
+    assertThat(loser.recorded()).isFalse();
+    assertThat(loser.view().departure()).isEqualTo(winner);
+    assertThat(world.events).isEmpty();
+  }
+
+  @Test
+  void A_a_key_registered_an_instant_ago_answers_the_departure_it_was_registered_for() {
+    world.racedDeparture = departure.id();
+    StartDeparture.Started loser = start.execute(command("SAL-001", KEY, NOW));
+    assertThat(loser.recorded()).isFalse();
+    assertThat(loser.view().departure().id()).isEqualTo(departure.id());
+    assertThat(world.events).isEmpty();
+  }
+
+  @Test
+  void A_a_key_used_for_another_departure_is_refused_and_not_answered_with_that_one() {
+    Departure other = put(2, DepartureStatus.SCHEDULED, TENANT);
+    start.execute(command("SAL-002", KEY, NOW));
+    assertThatThrownBy(() -> start.execute(command("SAL-001", KEY, NOW))).isInstanceOf(BusinessRuleViolationException.class);
+    assertThat(world.departures.get(departure.id())).isEqualTo(departure);
+    assertThat(world.departures.get(other.id()).status()).isEqualTo(DepartureStatus.IN_EXECUTION);
+  }
 }

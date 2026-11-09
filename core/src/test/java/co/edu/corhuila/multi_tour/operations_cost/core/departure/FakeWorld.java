@@ -39,6 +39,9 @@ final class FakeWorld
   boolean outboxFails;
   UUID racedDeparture;
   private final Map<String, UUID> committedByOthers = new HashMap<>();
+  // what another request committed while this one waited for the lock: a rollback of this one must not undo it
+  private final Map<UUID, Departure> departuresCommittedByOthers = new HashMap<>();
+  private final Map<String, UUID> keysCommittedByOthers = new HashMap<>();
   int catalogCalls;
   private int ids;
 
@@ -61,6 +64,8 @@ final class FakeWorld
       keys.clear();
       keys.putAll(keysBefore);
       keys.putAll(committedByOthers);
+      departures.putAll(departuresCommittedByOthers);
+      keys.putAll(keysCommittedByOthers);
       vehicleRows.clear();
       vehicleRows.putAll(vehiclesBefore);
       assignments.clear();
@@ -93,6 +98,8 @@ final class FakeWorld
       Runnable concurrent = onLock;
       onLock = null;
       concurrent.run();
+      departuresCommittedByOthers.putAll(departures);
+      keysCommittedByOthers.putAll(keys);
     }
     return find(tenantId, id);
   }
