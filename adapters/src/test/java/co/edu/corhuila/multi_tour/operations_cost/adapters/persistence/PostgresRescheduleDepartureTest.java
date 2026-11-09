@@ -38,7 +38,7 @@ class PostgresRescheduleDepartureTest extends PostgresTest {
 
   private static RescheduleDeparture reschedule(Outbox events, Optional<Reservations.Seats> seats) {
     return new RescheduleDeparture(departures, events, (service, departure) -> seats,
-        serviceId -> Optional.empty(), transaction, UUID::randomUUID, Clock.tick(Clock.systemUTC(), Duration.ofNanos(1_000)));
+        serviceId -> Optional.empty(), vehicles, transaction, UUID::randomUUID, Clock.tick(Clock.systemUTC(), Duration.ofNanos(1_000)));
   }
 
   private static RescheduleDeparture.Command command(UUID tenant, String code, Instant start, Instant end) {
