@@ -7,7 +7,12 @@ import java.util.Set;
  * no other (RN-OPS-API-02). The role of the platform or of a service is never mixed with a role of a tenant, and a role of a
  * tenant always comes with one.
  */
-public record Caller(String subject, String tenantId, Set<Role> roles) {
+public record Caller(String subject, String tenantId, Set<Role> roles, Set<String> permissions) {
+
+  /** A caller whose token carries no permissions: the platform, the services and the people with none. */
+  public Caller(String subject, String tenantId, Set<Role> roles) {
+    this(subject, tenantId, roles, Set.of());
+  }
 
   public Caller {
     if (subject == null || subject.isBlank()) {
@@ -17,6 +22,7 @@ public record Caller(String subject, String tenantId, Set<Role> roles) {
       throw new IllegalArgumentException("A caller has at least one role");
     }
     roles = Set.copyOf(roles);
+    permissions = permissions == null ? Set.of() : Set.copyOf(permissions);
     tenantId = tenantId == null || tenantId.isBlank() ? null : tenantId;
     boolean ofTenant = roles.stream().anyMatch(Role::belongsToATenant);
     if (ofTenant && roles.stream().anyMatch(r -> !r.belongsToATenant())) {
@@ -28,5 +34,9 @@ public record Caller(String subject, String tenantId, Set<Role> roles) {
     if (!ofTenant && tenantId != null) {
       throw new IllegalArgumentException("The platform and the services have no tenant");
     }
+  }
+
+  public boolean holds(String permission) {
+    return permissions.contains(permission);
   }
 }

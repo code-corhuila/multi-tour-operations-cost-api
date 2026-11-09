@@ -110,7 +110,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
       for (String name : names == null ? List.<String>of() : names) {
         roles.add(Role.valueOf(name));
       }
-      return new Caller(subject, claims.getStringClaim("tenantId"), roles);
+      // absent means none; a claim that is not a list of strings makes the whole token a refusal (it is caught below)
+      List<String> granted = claims.getStringListClaim("permissions");
+      return new Caller(subject, claims.getStringClaim("tenantId"), roles, granted == null ? Set.of() : Set.copyOf(granted));
     } catch (ParseException | JOSEException | RuntimeException e) {
       // anything a hostile but signed token can provoke is a refusal, never a server error
       return null;
