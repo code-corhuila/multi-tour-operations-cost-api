@@ -100,6 +100,22 @@ class OperationalCostTest {
   }
 
   @Test
+  void D_the_limits_are_measured_after_the_spaces_around_the_text_are_taken_off() {
+    assertThatCode(() -> OperationalCost.manual(ID, TENANT, DEPARTURE, " " + "c".repeat(200) + " ", 100L, true, null, BY, NOW)).doesNotThrowAnyException();
+    assertThatCode(() -> manual(50_000L, false, " " + "j".repeat(500) + " ")).doesNotThrowAnyException();
+    // blank is blank whatever its length: a business refusal, not a field error
+    assertThatThrownBy(() -> manual(50_000L, false, " ".repeat(600))).isInstanceOf(BusinessRuleViolationException.class);
+    assertThat(manual(50_000L, false, " why ").justification()).isEqualTo("why");
+  }
+
+  @Test
+  void D_a_catalogued_cost_that_is_not_above_zero_is_no_cost_at_all() {
+    UUID tour = new UUID(0, 0xbb);
+    assertThat(new CatalogTour(tour, CatalogTour.Type.TOUR, true, 18, true, 0L).baseOperationalCostCents()).isEmpty();
+    assertThat(new CatalogTour(tour, CatalogTour.Type.TOUR, true, 18, true, -5L).baseOperationalCostCents()).isEmpty();
+  }
+
+  @Test
   void D_the_catalog_says_the_cost_of_a_tour_or_that_it_has_none() {
     UUID tour = new UUID(0, 0xbb);
     assertThat(new CatalogTour(tour, CatalogTour.Type.TOUR, true, 18, true, 21_000_000L).baseOperationalCostCents()).contains(21_000_000L);
