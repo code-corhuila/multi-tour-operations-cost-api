@@ -9,6 +9,7 @@ public interface IdempotencyKeys {
   String SCHEDULE = "scheduleDeparture";
   String START = "registerStart";
   String FINISH = "finishDeparture";
+  String REGULARIZE = "regularizeDeparture";
 
   Optional<UUID> departureOf(UUID tenantId, String operation, String key);
 

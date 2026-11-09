@@ -10,6 +10,7 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.FinishDeparture
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.GetDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.InvalidDataException;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ListDepartures;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.RegularizeDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.StartDeparture;
@@ -85,6 +86,10 @@ class DepartureController {
   /** The body of {@code finishDeparture}: a normal end carries no cause, an interruption carries it. */
   record FinishRequest(Instant finishedAt, String result, String cause) {}
 
+  /** The body of {@code regularizeDeparture}: the result, the real hours and what the result needs. */
+  record RegularizeRequest(
+      String result, Instant actualStart, Instant actualEnd, String earlyStartReason, String interruption, String notCarriedOutCause) {}
+
   /** The body of {@code rescheduleDeparture}: the new start and estimated end, nothing else. */
   record RescheduleDepartureRequest(Instant scheduledStart, Instant scheduledEnd) {}
 
@@ -102,12 +107,13 @@ class DepartureController {
   private final GetDeparture getDeparture;
   private final StartDeparture startDeparture;
   private final FinishDeparture finishDeparture;
+  private final RegularizeDeparture regularizeDeparture;
   private final Clock clock;
 
   DepartureController(
       ScheduleDeparture scheduleDeparture, RescheduleDeparture rescheduleDeparture, AddDepartureVehicles addDepartureVehicles,
       ListDepartures listDepartures, GetDeparture getDeparture, StartDeparture startDeparture, FinishDeparture finishDeparture,
-      Clock clock) {
+      RegularizeDeparture regularizeDeparture, Clock clock) {
     this.scheduleDeparture = scheduleDeparture;
     this.rescheduleDeparture = rescheduleDeparture;
     this.addDepartureVehicles = addDepartureVehicles;
@@ -115,6 +121,7 @@ class DepartureController {
     this.getDeparture = getDeparture;
     this.startDeparture = startDeparture;
     this.finishDeparture = finishDeparture;
+    this.regularizeDeparture = regularizeDeparture;
     this.clock = clock;
   }
 
@@ -166,6 +173,28 @@ class DepartureController {
     FinishDeparture.Finished result = finishDeparture.execute(
         new FinishDeparture.Command(caller, departureCode, idempotencyKey, body.finishedAt(), body.cause(), MDC.get("traceId")));
     return recorded(result.view(), result.recorded());
+  }
+
+  @PostMapping(path = "/departures/{departureCode}/regularization", consumes = "application/json")
+  ResponseEntity<DepartureResponse> regularize(
+      HttpServletRequest request, @PathVariable String departureCode,
+      @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey, @RequestBody RegularizeRequest body) {
+    requireCode(departureCode);
+    // the shape of the body that this route can judge alone; the rest is judged by the use case, after the key
+    RegularizeDeparture.Result result = resultOf(body.result());
+    Caller caller = (Caller) request.getAttribute(JwtAuthFilter.CALLER);
+    RegularizeDeparture.Regularized done = regularizeDeparture.execute(new RegularizeDeparture.Command(
+        caller, departureCode, idempotencyKey, result, body.actualStart(), body.actualEnd(), body.earlyStartReason(), body.interruption(),
+        MDC.get("traceId")));
+    return recorded(done.view(), done.recorded());
+  }
+
+  private static RegularizeDeparture.Result resultOf(String value) {
+    try {
+      return value == null ? null : RegularizeDeparture.Result.valueOf(value);
+    } catch (IllegalArgumentException unknown) {
+      throw new InvalidDataException("result", "The result is not one of EXECUTED, INTERRUPTED or NOT_CARRIED_OUT");
+    }
   }
 
   private ResponseEntity<DepartureResponse> recorded(DepartureView view, boolean created) {
