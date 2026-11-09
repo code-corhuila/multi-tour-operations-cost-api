@@ -125,7 +125,7 @@ final class FakeWorld
       UUID tenantId, Optional<DepartureStatus> status, int page, int limit) {
     List<Departure> matching = departures.values().stream()
         .filter(d -> d.tenantId().equals(tenantId) && status.map(s -> s == d.status()).orElse(true))
-        .sorted(Comparator.comparing(Departure::start).thenComparing(Departure::code).reversed())
+        .sorted(Comparator.<Departure, Instant>comparing(Departure::start).thenComparing(Departure::code).reversed())
         .toList();
     int from = Math.min((page - 1) * limit, matching.size());
     return new co.edu.corhuila.multi_tour.operations_cost.core.outbox.Page<>(
