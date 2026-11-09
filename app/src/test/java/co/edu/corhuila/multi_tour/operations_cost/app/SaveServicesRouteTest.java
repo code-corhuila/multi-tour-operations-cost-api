@@ -125,7 +125,7 @@ class SaveServicesRouteTest extends ShellTest {
 
   @Test
   void C_get_departure_without_reservations_still_answers() {
-    world.reservationsDown = true;
+    world.reservationListDown = true;
     Response response = as(administrator()).filter(Contract.filter()).get(DEPARTURES + "/{code}", "SAL-001");
     assertThat(response.statusCode()).isEqualTo(200);
     assertThat(response.jsonPath().getString("code")).isEqualTo("SAL-001");

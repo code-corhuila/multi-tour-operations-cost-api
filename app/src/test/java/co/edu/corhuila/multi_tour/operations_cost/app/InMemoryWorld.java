@@ -75,6 +75,8 @@ final class InMemoryWorld
   final Map<UUID, List<ReservationOfDeparture>> reservationRows = new HashMap<>();
   final Map<UUID, Map<UUID, ServiceRecord>> serviceRows = new HashMap<>();
   volatile boolean reservationsDown;
+  /** Only the reading of the reservations of a departure fails; the seats still answer. */
+  volatile boolean reservationListDown;
   volatile boolean catalogDown;
   volatile int catalogCalls;
 
@@ -92,6 +94,7 @@ final class InMemoryWorld
       catalogDown = false;
       seats.clear();
       reservationsDown = false;
+      reservationListDown = false;
       catalogCalls = 0;
     }
   }
@@ -204,7 +207,7 @@ final class InMemoryWorld
 
   @Override
   public List<ReservationOfDeparture> reservationsOf(UUID serviceId, UUID departureId) {
-    if (reservationsDown) {
+    if (reservationsDown || reservationListDown) {
       throw new DependencyUnavailableException("reservations");
     }
     return reservationRows.getOrDefault(departureId, List.of());
