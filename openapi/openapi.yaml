@@ -1,14 +1,14 @@
 openapi: 3.0.3
 info:
   title: Multi Tour — operations-cost (the operations built so far)
-  version: 0.3.0
+  version: 0.4.0
   description: |
-    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.3.0) that the contract gate loads (ADR-004 D7). It keeps
+    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.4.0) that the contract gate loads (ADR-004 D7). It keeps
     only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
     differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
     service and tested apart), `Departure` flattened without `actualStart`, `actualEnd`, `mark` and the typed lists, and the
-    error body, the paging parameters and the paging meta defined here instead of in `_shared.yaml`; in `rescheduleDeparture` the sentence about the overlap of vehicles (HU-OPS-002, not built), the tags and the extensions `x-hu` and `x-permission` are left out. The `booked` of an answer is always 0 until the reservations of a departure are read for it (HU-OPS-003). The design contract
-    lives in `multi-tour-docs`. Operations offered: `getHealth`, `scheduleDeparture`, `rescheduleDeparture`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
+    error body, the paging parameters and the paging meta defined here instead of in `_shared.yaml`; in `rescheduleDeparture` the tags and the extensions `x-hu` and `x-permission` are left out. The `booked` of an answer is always 0 until the reservations of a departure are read for it (HU-OPS-003). The design contract
+    lives in `multi-tour-docs`. Operations offered: `getHealth`, `scheduleDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
 paths:
   /health:
     get:
@@ -36,7 +36,9 @@ paths:
       description: |
         The Tenant Administrator schedules a departure of a tour of the catalog of their tenant; it is created `SCHEDULED` and
         gets the next code `SAL-NNN` of the tenant. A repeat with the same `Idempotency-Key` answers `200` with the departure
-        already created. **Requires:** `TENANT_ADMINISTRATOR`.
+        already created. Since 0.4.0 (HU-OPS-002) it takes `vehicleIds`: for a tour that requires transport the departure starts
+        with those vehicles; a vehicle on another departure whose interval overlaps, an unknown vehicle, or vehicles for a tour that
+        does not require transport are `422 BUSINESS_RULE_VIOLATION`. **Requires:** `TENANT_ADMINISTRATOR`.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -93,6 +95,142 @@ paths:
       responses:
         '200':
           description: The departure as it is now
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/vehicles:
+    get:
+      operationId: listVehicles
+      summary: List the vehicles of the tenant (HU-OPS-002)
+      description: Sorted by name. Those of another tenant never appear. **Requires:** `TENANT_ADMINISTRATOR`.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: A page of vehicles
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    maxItems: 100
+                    items:
+                      $ref: '#/components/schemas/Vehicle'
+                  meta:
+                    type: object
+                    required: [page, limit, total, totalPages]
+                    properties:
+                      page:
+                        type: integer
+                      limit:
+                        type: integer
+                      total:
+                        type: integer
+                      totalPages:
+                        type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createVehicle
+      summary: Register a vehicle of the tenant (HU-OPS-002 AC1, RF-020)
+      description: |
+        A name of 1 to 60 characters and a capacity from 1 to 100 seats. A name already used by another vehicle of the tenant
+        (upper and lower case and the spaces around it ignored) is `422 BUSINESS_RULE_VIOLATION`. A repeat with the same
+        `Idempotency-Key` answers `200` with the vehicle already created. **Requires:** `TENANT_ADMINISTRATOR`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVehicleRequest'
+      responses:
+        '201':
+          description: Registered
+          headers:
+            Location:
+              description: Where the vehicles of the tenant are listed
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the vehicle already created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/operations-cost/departures/{departureCode}/vehicles:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    post:
+      operationId: addDepartureVehicles
+      summary: Add vehicles to a scheduled departure (HU-OPS-002 AC2, AC3, AC5)
+      description: |
+        Adds the vehicles to a `SCHEDULED` departure of a tour that requires transport; a vehicle already on it changes nothing, so
+        a repeat answers `200` with the same departure and writes nothing. The new total goes to `commercial-reservation` through
+        `SalidaVehiclesChanged`, written in the same transaction. A vehicle on another departure whose interval overlaps, an unknown
+        vehicle, or a tour that does not require transport are `422 BUSINESS_RULE_VIOLATION`; a departure that is not `SCHEDULED`
+        is `422 INVALID_STATUS_TRANSITION`; a departure of another tenant is `404`. Nothing here removes a vehicle (part B).
+        **Requires:** `TENANT_ADMINISTRATOR`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddDepartureVehiclesRequest'
+      responses:
+        '200':
+          description: The departure with its vehicles and its effective capacity
           content:
             application/json:
               schema:
@@ -356,6 +494,56 @@ components:
           type: string
           minLength: 1
           maxLength: 64
+        vehicleIds:
+          description: Since 0.4.0 (HU-OPS-002). Only for a tour that requires transport; none is accepted for a tour that does not
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    Vehicle:
+      type: object
+      required: [vehicleId, name, capacity]
+      additionalProperties: false
+      properties:
+        vehicleId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+        capacity:
+          type: integer
+          minimum: 1
+          maximum: 100
+    CreateVehicleRequest:
+      type: object
+      required: [name, capacity]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+        capacity:
+          type: integer
+          minimum: 1
+          maximum: 100
+    AddDepartureVehiclesRequest:
+      type: object
+      required: [vehicleIds]
+      additionalProperties: false
+      properties:
+        vehicleIds:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
     Departure:
       type: object
       required: [code, status, scheduledStart, scheduledEnd, capacity, booked, vehicles, reservations, novelties]
@@ -373,13 +561,24 @@ components:
           format: date-time
         capacity:
           type: integer
+          description: Since 0.4.0, the effective capacity, the lower of `tourCapacity` and `vehicleCapacity` when the tour requires transport, `tourCapacity` otherwise
         booked:
           type: integer
+        tourCapacity:
+          type: integer
+          description: Since 0.4.0, the capacity of the tour in the catalog of `commercial-reservation`
+        vehicleCapacity:
+          type: integer
+          description: Since 0.4.0, the total capacity of the vehicles of the departure; `0` without vehicles
+        transportRequired:
+          type: boolean
+          description: Since 0.4.0, whether the tour requires transport, as the catalog says
         vehicles:
           type: array
           maxItems: 20
+          description: Since 0.4.0 each vehicle with its id, name and capacity (it was a list of names)
           items:
-            type: string
+            $ref: '#/components/schemas/Vehicle'
         reservations:
           type: array
           maxItems: 100
