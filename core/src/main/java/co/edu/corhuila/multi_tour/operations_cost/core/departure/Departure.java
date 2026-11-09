@@ -138,6 +138,11 @@ public record Departure(
     return new Departure(id, tenantId, code, serviceId, start, estimatedEnd, timeZone, newStatus, scheduledBy, scheduledAt, newExecution);
   }
 
+  /** The alert of RN-EJE-001: still scheduled when its scheduled start has arrived. Derived for each answer, never stored. */
+  public boolean startAlert(Instant now) {
+    return status == DepartureStatus.SCHEDULED && !now.isBefore(start);
+  }
+
   public boolean hasSchedule(Instant otherStart, Instant otherEnd) {
     return start.equals(otherStart) && estimatedEnd.equals(otherEnd);
   }
