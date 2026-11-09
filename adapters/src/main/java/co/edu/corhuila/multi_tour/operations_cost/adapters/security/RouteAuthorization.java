@@ -26,7 +26,7 @@ public final class RouteAuthorization implements HandlerInterceptor {
   // and are not a customer nor an optional role (api 004 RN-OPS-API-46).
   private static final Set<Role> EXECUTORS = Set.of(Role.TENANT_ADMINISTRATOR, Role.OPERATIONAL_COLLABORATOR);
   private static final Pattern EXECUTION_ROUTE =
-      Pattern.compile("^" + Pattern.quote("/api/v1/operations-cost/departures") + "(/SAL-[0-9]{3,6}(/(executions|finish|regularization))?)?$");
+      Pattern.compile("^" + Pattern.quote("/api/v1/operations-cost/departures") + "(/SAL-[0-9]{3,6}(/(executions|finish|regularization|services))?)?$");
 
   @Override
   public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
@@ -54,6 +54,6 @@ public final class RouteAuthorization implements HandlerInterceptor {
     if (!EXECUTION_ROUTE.matcher(uri).matches()) {
       return false;
     }
-    return uri.endsWith("/executions") || uri.endsWith("/finish") || uri.endsWith("/regularization") ? "POST".equals(method) : "GET".equals(method);
+    return uri.endsWith("/executions") || uri.endsWith("/finish") || uri.endsWith("/regularization") || uri.endsWith("/services") ? "POST".equals(method) : "GET".equals(method);
   }
 }

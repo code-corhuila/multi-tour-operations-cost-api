@@ -25,7 +25,9 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RegularizeDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.SaveServices;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecords;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServicesReader;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Transaction;
 import co.edu.corhuila.multi_tour.operations_cost.core.outbox.OutboxEvents;
@@ -190,8 +192,20 @@ class CompositionRoot {
   }
 
   @Bean
-  GetDeparture getDeparture(DepartureRepository departures, DepartureViews views) {
-    return new GetDeparture(departures, views);
+  ServicesReader servicesReader(Reservations reservations, ServiceRecords records) {
+    return new ServicesReader(reservations, records);
+  }
+
+  @Bean
+  GetDeparture getDeparture(DepartureRepository departures, DepartureViews views, ServicesReader services) {
+    return new GetDeparture(departures, views, services);
+  }
+
+  @Bean
+  SaveServices saveServices(
+      DepartureRepository departures, ServiceRecords records, IdempotencyKeys keys, ServicesReader reader, DepartureViews views,
+      Transaction transaction, Clock clock) {
+    return new SaveServices(departures, records, keys, reader, views, transaction, clock);
   }
 
   @Bean
