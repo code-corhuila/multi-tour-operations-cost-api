@@ -165,18 +165,18 @@ final class FakeWorld
   }
 
   @Override
-  public Optional<UUID> departureOf(UUID tenantId, String key) {
-    return Optional.ofNullable(keys.get(tenantId + "/" + key));
+  public Optional<UUID> departureOf(UUID tenantId, String operation, String key) {
+    return Optional.ofNullable(keys.get(tenantId + "/" + operation + "/" + key));
   }
 
   @Override
-  public void register(UUID tenantId, String key, UUID departureId) {
+  public void register(UUID tenantId, String operation, String key, UUID departureId) {
     if (racedDeparture != null) {
       // another request registered the key an instant ago and committed; this transaction rolls back
-      committedByOthers.put(tenantId + "/" + key, racedDeparture);
+      committedByOthers.put(tenantId + "/" + operation + "/" + key, racedDeparture);
       throw new DuplicateKeyException();
     }
-    keys.put(tenantId + "/" + key, departureId);
+    keys.put(tenantId + "/" + operation + "/" + key, departureId);
   }
 
   @Override
