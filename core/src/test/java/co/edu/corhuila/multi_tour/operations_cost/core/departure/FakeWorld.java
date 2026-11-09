@@ -31,6 +31,8 @@ final class FakeWorld
   boolean updateRefused;
   int reservationCalls;
   boolean catalogDown;
+  /** Runs when a request takes the lock of a departure: whatever another request committed before it was granted. */
+  Runnable onLock;
   final Map<UUID, Vehicle> vehicleRows = new LinkedHashMap<>();
   final Map<UUID, Set<UUID>> assignments = new HashMap<>();
   final Map<String, UUID> vehicleKeys = new HashMap<>();
@@ -83,6 +85,16 @@ final class FakeWorld
   @Override
   public Optional<Departure> find(UUID tenantId, UUID id) {
     return Optional.ofNullable(departures.get(id)).filter(d -> d.tenantId().equals(tenantId));
+  }
+
+  @Override
+  public Optional<Departure> findForUpdate(UUID tenantId, UUID id) {
+    if (onLock != null) {
+      Runnable concurrent = onLock;
+      onLock = null;
+      concurrent.run();
+    }
+    return find(tenantId, id);
   }
 
   @Override

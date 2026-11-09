@@ -16,6 +16,13 @@ public interface DepartureRepository {
   Optional<Departure> findByCode(UUID tenantId, String code);
 
   /**
+   * Like {@link #find} but the row stays locked until the end of the transaction, so a request that decides on the state and the
+   * dates of a departure, or on its vehicles, reads them again here and nobody else changes them meanwhile (plan D-05). Every use
+   * case that touches the vehicles of a departure takes this lock first, then the vehicles in id order.
+   */
+  Optional<Departure> findForUpdate(UUID tenantId, UUID id);
+
+  /**
    * Replaces the start and the estimated end that were read ({@code from}) by the new ones ({@code to}), only if the departure
    * is still {@code SCHEDULED} and still has the dates that were read. False when it is not there, has left that state or was
    * changed meanwhile, so a change decided on a stale reading is never written and two changes never both win.
