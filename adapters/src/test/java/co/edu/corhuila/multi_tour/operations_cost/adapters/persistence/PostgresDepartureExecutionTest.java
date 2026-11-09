@@ -147,6 +147,30 @@ class PostgresDepartureExecutionTest extends PostgresTest {
   }
 
   @Test
+  void I_the_same_key_is_another_key_for_another_operation_and_for_another_tenant() {
+    UUID tenant = UUID.randomUUID();
+    Departure created = began(tenant, NOW.minus(Duration.ofHours(3)));
+    keys.register(tenant, "registerStart", "key-0000001", created.id());
+    assertThat(keys.departureOf(tenant, "registerStart", "key-0000001")).contains(created.id());
+    assertThat(keys.departureOf(tenant, "finishDeparture", "key-0000001")).isEmpty();
+    assertThat(keys.departureOf(tenant, "key-0000001")).isEmpty();
+    assertThat(keys.departureOf(UUID.randomUUID(), "registerStart", "key-0000001")).isEmpty();
+    keys.register(tenant, "finishDeparture", "key-0000001", created.id());
+    org.assertj.core.api.Assertions.assertThatThrownBy(() -> keys.register(tenant, "registerStart", "key-0000001", created.id()))
+        .isInstanceOf(co.edu.corhuila.multi_tour.operations_cost.core.departure.DuplicateKeyException.class);
+  }
+
+  @Test
+  void I_a_departure_read_back_is_the_one_that_was_stored_for_every_state_the_engine_accepts() {
+    UUID tenant = UUID.randomUUID();
+    Departure created = began(tenant, NOW.minus(Duration.ofHours(3)));
+    Departure started = created.start(NOW.minus(Duration.ofHours(2)), STARTER, NOW);
+    assertThat(departures.updateExecution(created, started)).isTrue();
+    assertThat(departures.findByCode(tenant, created.code())).contains(started);
+    assertThat(departures.findForUpdate(tenant, created.id())).contains(started);
+  }
+
+  @Test
   void I_the_page_lists_the_tenant_most_recent_first_and_filters_by_status() {
     UUID tenant = UUID.randomUUID();
     Departure oldest = began(tenant, NOW.minus(Duration.ofDays(5)));
