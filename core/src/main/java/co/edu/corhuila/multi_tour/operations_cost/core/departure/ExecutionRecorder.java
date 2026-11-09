@@ -8,12 +8,13 @@ import java.util.UUID;
 import java.util.function.Consumer;
 
 /**
- * The flow that every recording of what happened in a departure shares (HU-OPS-003, api 004 D-04): the start and the end today, and
- * whatever comes next. A repeated key answers the departure it was registered for, and only that one; the state is judged before another
+ * The flow that every recording of what happened in a departure shares (HU-OPS-003, api 004 D-04): the start, the end and the
+ * regularization, and whatever comes next. A repeated key answers the departure it was registered for, and only that one; the state is judged before another
  * domain is asked anything; what the other domains say is read before the transaction opens, so a failure there writes nothing; inside
  * it the departure is locked, the change is made on what is there now, and the change, its event and the key are written together. The
  * loser of a race with the same key answers what the winner recorded. Each recording says only what is its own: the operation of its
- * key, the state it needs, the change and the event.
+ * key, the state it needs, what else the departure must be, the change and the events (a regularization tells the start and then
+ * the end).
  */
 final class ExecutionRecorder {
 
