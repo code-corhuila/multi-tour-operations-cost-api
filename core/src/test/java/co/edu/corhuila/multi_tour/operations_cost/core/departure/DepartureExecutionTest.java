@@ -121,4 +121,28 @@ class DepartureExecutionTest {
     assertThat(scheduled().execution()).isEqualTo(DepartureExecution.NONE);
     assertThat(scheduled().execution().interrupted()).isFalse();
   }
+
+  @Test
+  void D_finishing_judges_the_state_before_the_time_and_the_cause() {
+    assertThatThrownBy(() -> scheduled().finish(NOW.plusSeconds(1), FINISHER, NOW, ""))
+        .isInstanceOf(InvalidStatusTransitionException.class);
+  }
+
+  @Test
+  void D_the_end_keeps_the_microseconds_the_database_keeps() {
+    Departure finished = running().finish(NOW.minusNanos(1_000).plusNanos(234), FINISHER, NOW, null);
+    assertThat(finished.execution().actualEnd()).isEqualTo(NOW.minusNanos(1_000));
+  }
+
+  @Test
+  void D_a_start_or_an_end_without_its_time_or_its_person_is_refused_by_field() {
+    assertThatThrownBy(() -> scheduled().start(null, STARTER, NOW))
+        .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("startedAt"));
+    assertThatThrownBy(() -> scheduled().start(NOW, null, NOW))
+        .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("startedBy"));
+    assertThatThrownBy(() -> running().finish(null, FINISHER, NOW, null))
+        .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("finishedAt"));
+    assertThatThrownBy(() -> running().finish(NOW, null, NOW, null))
+        .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("finishedBy"));
+  }
 }
