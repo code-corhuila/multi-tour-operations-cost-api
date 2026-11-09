@@ -7,6 +7,8 @@ import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcIdemp
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutbox;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutboxEvents;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcTransaction;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicleKeys;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicles;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Catalog;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureRepository;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdGenerator;
@@ -19,6 +21,10 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.Transaction;
 import co.edu.corhuila.multi_tour.operations_cost.core.outbox.OutboxEvents;
 import co.edu.corhuila.multi_tour.operations_cost.core.outbox.OutboxRelay;
 import co.edu.corhuila.multi_tour.operations_cost.core.outbox.RetryPolicy;
+import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.ListVehicles;
+import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.RegisterVehicle;
+import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.VehicleKeys;
+import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.Vehicles;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -84,6 +90,16 @@ class CompositionRoot {
   }
 
   @Bean
+  Vehicles vehicles(JdbcClient jdbc) {
+    return new JdbcVehicles(jdbc);
+  }
+
+  @Bean
+  VehicleKeys vehicleKeys(JdbcClient jdbc) {
+    return new JdbcVehicleKeys(jdbc);
+  }
+
+  @Bean
   Transaction transaction(DataSource dataSource) {
     return new JdbcTransaction(new DataSourceTransactionManager(dataSource));
   }
@@ -139,6 +155,16 @@ class CompositionRoot {
       DepartureRepository departures, Outbox outbox, IdempotencyKeys keys, Catalog catalog, Transaction transaction,
       IdGenerator ids, Clock clock) {
     return new ScheduleDeparture(departures, outbox, keys, catalog, transaction, ids, clock);
+  }
+
+  @Bean
+  RegisterVehicle registerVehicle(Vehicles vehicles, VehicleKeys keys, Transaction transaction, IdGenerator ids, Clock clock) {
+    return new RegisterVehicle(vehicles, keys, transaction, ids, clock);
+  }
+
+  @Bean
+  ListVehicles listVehicles(Vehicles vehicles) {
+    return new ListVehicles(vehicles);
   }
 
   public static void main(String[] args) {
