@@ -31,7 +31,7 @@ public final class StartDeparture {
                 throw new InvalidDataException("startedAt", "The field startedAt is missing or not valid");
               }
             },
-            (current, account, now) -> current.start(command.startedAt(), account, now), ExecutionEvents::started));
+            (current, account, now) -> current.start(command.startedAt(), account, now), ExecutionRecorder.Announce.one(ExecutionEvents::started)));
     return new Started(outcome.view(), outcome.recorded());
   }
 }
