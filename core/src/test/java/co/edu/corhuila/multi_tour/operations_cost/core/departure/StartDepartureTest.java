@@ -163,6 +163,17 @@ class StartDepartureTest {
   }
 
   @Test
+  void A_the_request_is_judged_in_a_fixed_order_a_caller_that_is_not_one_before_the_key_before_the_trace_before_the_time() {
+    Caller stranger = new Caller("not-a-uuid", TENANT.toString(), Set.of(Role.OPERATIONAL_COLLABORATOR), Set.of(Permission.MANAGE_DEPARTURE_EXECUTION));
+    assertThatThrownBy(() -> start.execute(new StartDeparture.Command(stranger, "SAL-001", "short", null, " ")))
+        .isInstanceOf(co.edu.corhuila.multi_tour.operations_cost.core.security.CallerNotAllowedException.class);
+    assertThatThrownBy(() -> start.execute(command("SAL-001", "short", null)))
+        .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("Idempotency-Key"));
+    assertThatThrownBy(() -> start.execute(new StartDeparture.Command(person, "SAL-001", KEY, null, " ")))
+        .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("X-Correlation-Id"));
+  }
+
+  @Test
   void A_a_bad_key_a_missing_time_or_a_bad_trace_is_refused_by_field() {
     assertThatThrownBy(() -> start.execute(command("SAL-001", "short", NOW)))
         .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("Idempotency-Key"));
