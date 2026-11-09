@@ -182,7 +182,8 @@ class DepartureExecutionRouteTest extends ShellTest {
     departure(2, START, DepartureStatus.SCHEDULED, OTHER_TENANT);
     assertError(as(administrator()).filter(Contract.answers()).get(DEPARTURES + "/{code}", "SAL-002"), 404, "NOT_FOUND");
     assertError(as(administrator()).filter(Contract.answers()).get(DEPARTURES + "/{code}", "SAL-404"), 404, "NOT_FOUND");
-    assertError(as(administrator()).filter(Contract.answers()).get(DEPARTURES + "/{code}", "sal-001"), 400, "VALIDATION_ERROR");
+    // the validator of the contract refuses this request by itself, so it is sent without it
+    assertError(as(administrator()).get(DEPARTURES + "/{code}", "sal-001"), 400, "VALIDATION_ERROR");
   }
 
   // ---- the start
