@@ -201,4 +201,39 @@ class HttpReservationsTest {
       elsewhere.stop(0);
     }
   }
+
+  // api 004 D-06: the list of departures reads each tour once, so the seats of every departure of a tour come from one paged read.
+  @Test
+  void A_the_seats_of_every_departure_of_a_tour_come_from_one_paged_read() {
+    pages.add(page(1, 2, row(OTHER, 10, 10)));
+    pages.add(page(2, 2, row(DEPARTURE, 12, 9)));
+    assertThat(reservations.seatsOfTour(TOUR))
+        .containsOnly(java.util.Map.entry(OTHER, new Reservations.Seats(10, 0)), java.util.Map.entry(DEPARTURE, new Reservations.Seats(12, 3)));
+    assertThat(queries).hasSize(2);
+  }
+
+  @Test
+  void A_a_tour_that_commercial_reservation_does_not_have_has_no_seats() {
+    status = 404;
+    assertThat(reservations.seatsOfTour(TOUR)).isEmpty();
+  }
+
+  @Test
+  void A_a_tour_with_more_than_five_pages_is_not_available_because_the_answer_would_be_partial() {
+    for (int i = 1; i <= 6; i++) {
+      pages.add(page(i, 6, row(UUID.randomUUID(), 10, 10)));
+    }
+    assertThatThrownBy(() -> reservations.seatsOfTour(TOUR)).isInstanceOf(DependencyUnavailableException.class);
+  }
+
+  @Test
+  void A_the_read_of_a_whole_tour_fails_like_the_read_of_one_departure() {
+    for (int failing : new int[] {401, 500, 503}) {
+      status = failing;
+      assertThatThrownBy(() -> reservations.seatsOfTour(TOUR)).as("status " + failing).isInstanceOf(DependencyUnavailableException.class);
+    }
+    status = 200;
+    pages.add("{\"data\":[" + row(DEPARTURE, 5, 9) + "],\"meta\":{\"totalPages\":1}}");
+    assertThatThrownBy(() -> reservations.seatsOfTour(TOUR)).isInstanceOf(DependencyUnavailableException.class);
+  }
 }

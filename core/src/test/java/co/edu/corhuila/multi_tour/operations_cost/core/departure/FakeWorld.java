@@ -126,6 +126,15 @@ final class FakeWorld
   }
 
   @Override
+  public java.util.Map<UUID, Reservations.Seats> seatsOfTour(UUID serviceId) {
+    reservationCalls++;
+    if (reservationsDown) {
+      throw new DependencyUnavailableException("reservations");
+    }
+    return java.util.Map.copyOf(seats);
+  }
+
+  @Override
   public void add(OutboxEvent event) {
     if (outboxFails) {
       throw new IllegalStateException("the outbox is down");

@@ -147,6 +147,14 @@ final class InMemoryWorld
   }
 
   @Override
+  public java.util.Map<UUID, Reservations.Seats> seatsOfTour(UUID serviceId) {
+    if (reservationsDown) {
+      throw new DependencyUnavailableException("reservations");
+    }
+    return java.util.Map.copyOf(seats);
+  }
+
+  @Override
   public Optional<CatalogTour> tour(UUID serviceId) {
     catalogCalls++;
     if (catalogDown) {
