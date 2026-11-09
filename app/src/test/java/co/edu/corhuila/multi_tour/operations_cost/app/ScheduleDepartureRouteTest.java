@@ -229,7 +229,7 @@ class ScheduleDepartureRouteTest extends ShellTest {
 
   @Test
   void C_a_wrong_method_or_media_type_is_an_error_of_the_envelope() {
-    Response get = given().header("Authorization", "Bearer " + admin()).get(ROUTE);
+    Response get = given().header("Authorization", "Bearer " + admin()).delete(ROUTE);
     assertThat(get.statusCode()).isEqualTo(405);
     Response text = given().header("Authorization", "Bearer " + admin()).header("Idempotency-Key", "key-0001-abcdef")
         .contentType("text/plain").body("x").post(ROUTE);
