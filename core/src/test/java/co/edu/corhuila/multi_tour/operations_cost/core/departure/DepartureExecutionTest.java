@@ -62,7 +62,7 @@ class DepartureExecutionTest {
 
   @Test
   void D_the_state_is_judged_before_the_time() {
-    assertThatThrownBy(() -> inState(DepartureStatus.FINISHED).start(SCHEDULED_START.minusDays(1), STARTER, NOW))
+    assertThatThrownBy(() -> inState(DepartureStatus.FINISHED).start(SCHEDULED_START.minus(Duration.ofDays(1)), STARTER, NOW))
         .isInstanceOf(InvalidStatusTransitionException.class);
   }
 
