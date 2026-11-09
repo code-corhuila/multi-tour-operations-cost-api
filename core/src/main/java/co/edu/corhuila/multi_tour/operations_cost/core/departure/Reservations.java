@@ -22,4 +22,12 @@ public interface Reservations {
    * {@link DependencyUnavailableException} when it cannot say, or when the answer would be partial.
    */
   Map<UUID, Seats> seatsOfTour(UUID serviceId);
+
+  /**
+   * The reservations of a departure as their owner says them (HU-OPS-004). Throws {@link DependencyUnavailableException} when it cannot
+   * say. An adapter that does not offer the reading yet answers that it is unavailable.
+   */
+  default java.util.List<ReservationOfDeparture> reservationsOf(UUID serviceId, UUID departureId) {
+    throw new DependencyUnavailableException("reservations of a departure");
+  }
 }
