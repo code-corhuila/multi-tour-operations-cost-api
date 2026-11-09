@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.client.RestClient;
@@ -41,45 +42,41 @@ public final class HttpReservations implements Reservations {
 
   @Override
   public Optional<Seats> seatsOf(UUID serviceId, UUID departureId) {
-    try {
-      for (int page = 1; page <= MAX_PAGES; page++) {
-        JsonNode body = read(serviceId, page);
-        if (body == null) {
-          return Optional.empty();
-        }
-        JsonNode rows = body.get("data");
-        JsonNode totalPages = body.path("meta").get("totalPages");
-        if (rows == null || !rows.isArray() || totalPages == null || !totalPages.isInt()) {
-          throw new IllegalStateException("the list is not what the contract says");
-        }
-        for (JsonNode row : rows) {
-          if (departureId.toString().equals(row.path("departureId").asText())) {
-            return Optional.of(seats(row));
-          }
-        }
-        if (page >= totalPages.asInt()) {
-          return Optional.empty();
-        }
+    Seats[] found = new Seats[1];
+    walk(serviceId, row -> {
+      if (!departureId.toString().equals(row.path("departureId").asText())) {
+        return false;
       }
-      // the departure may be on a page that was not read: that is not the same as not being there
-      LOG.warn("The departure {} is not in the first {} pages of the tour {}", departureId, MAX_PAGES, serviceId);
-      throw new DependencyUnavailableException("reservations");
-    } catch (DependencyUnavailableException unavailable) {
-      throw unavailable;
-    } catch (RuntimeException failure) {
-      LOG.warn("The reservations could not be read for the tour {}: {}", serviceId, failure.getClass().getSimpleName());
-      throw new DependencyUnavailableException("reservations");
-    }
+      found[0] = seats(row);
+      return true;
+    });
+    return Optional.ofNullable(found[0]);
   }
 
   @Override
   public Map<UUID, Seats> seatsOfTour(UUID serviceId) {
+    Map<UUID, Seats> found = new HashMap<>();
+    // a partial map would make a departure on a page that was not read look like one that has no row, so the walk never ends early
+    boolean wholeList = walk(serviceId, row -> {
+      found.put(UUID.fromString(row.path("departureId").asText()), seats(row));
+      return false;
+    });
+    // a tour that disappears half way is a tour that is not there, not a list of the pages already read
+    return wholeList ? Map.copyOf(found) : Map.of();
+  }
+
+  /**
+   * Walks the pages of the list of departures of a tour (the only place that pages it), offering each row to {@code stopAt}, which says
+   * whether the walk has what it came for. It answers false when the tour is not there (or stops being there half way) and true
+   * when the list ended or the walk stopped; more than
+   * {@code MAX_PAGES} pages is "not available" and not "not there", because the row looked for may be on a page that was not read.
+   */
+  private boolean walk(UUID serviceId, Predicate<JsonNode> stopAt) {
     try {
-      Map<UUID, Seats> found = new HashMap<>();
       for (int page = 1; page <= MAX_PAGES; page++) {
         JsonNode body = read(serviceId, page);
         if (body == null) {
-          return Map.of();
+          return false;
         }
         JsonNode rows = body.get("data");
         JsonNode totalPages = body.path("meta").get("totalPages");
@@ -87,13 +84,14 @@ public final class HttpReservations implements Reservations {
           throw new IllegalStateException("the list is not what the contract says");
         }
         for (JsonNode row : rows) {
-          found.put(UUID.fromString(row.path("departureId").asText()), seats(row));
+          if (stopAt.test(row)) {
+            return true;
+          }
         }
         if (page >= totalPages.asInt()) {
-          return Map.copyOf(found);
+          return true;
         }
       }
-      // a partial map would make a departure on a page that was not read look like one that has no row
       LOG.warn("The tour {} has more than {} pages of departures", serviceId, MAX_PAGES);
       throw new DependencyUnavailableException("reservations");
     } catch (DependencyUnavailableException unavailable) {
