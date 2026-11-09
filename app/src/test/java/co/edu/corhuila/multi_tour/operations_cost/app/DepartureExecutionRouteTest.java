@@ -138,6 +138,24 @@ class DepartureExecutionRouteTest extends ShellTest {
   }
 
   @Test
+  void C_the_name_of_an_unknown_parameter_is_not_echoed_back() {
+    Response response = as(administrator()).filter(Contract.answers()).queryParam("a-very-odd<name>", "1").get(DEPARTURES);
+    assertError(response, 400, "VALIDATION_ERROR");
+    assertThat(response.asString()).doesNotContain("a-very-odd");
+  }
+
+  @Test
+  void C_the_same_key_in_two_tenants_is_two_keys() {
+    Departure other = departure(2, START, DepartureStatus.SCHEDULED, OTHER_TENANT);
+    String strangers = token("TENANT_ADMINISTRATOR", OTHER_TENANT, ACCOUNT, PERMISSION);
+    assertThat(as(administrator()).header("Idempotency-Key", "start-key-0001").body(start(NOW)).post(DEPARTURES + "/{code}/executions", "SAL-001")
+        .statusCode()).isEqualTo(201);
+    assertThat(as(strangers).header("Idempotency-Key", "start-key-0001").body(start(NOW)).post(DEPARTURES + "/{code}/executions", "SAL-002")
+        .statusCode()).isEqualTo(201);
+    assertThat(world.departures.get(other.id()).status()).isEqualTo(DepartureStatus.IN_EXECUTION);
+  }
+
+  @Test
   void C_the_list_with_reservations_down_is_503() {
     world.reservationsDown = true;
     assertError(as(administrator()).filter(Contract.answers()).get(DEPARTURES), 503, "SERVICE_UNAVAILABLE");
@@ -164,7 +182,7 @@ class DepartureExecutionRouteTest extends ShellTest {
     departure(2, START, DepartureStatus.SCHEDULED, OTHER_TENANT);
     assertError(as(administrator()).filter(Contract.answers()).get(DEPARTURES + "/{code}", "SAL-002"), 404, "NOT_FOUND");
     assertError(as(administrator()).filter(Contract.answers()).get(DEPARTURES + "/{code}", "SAL-404"), 404, "NOT_FOUND");
-    assertThat(as(administrator()).get(DEPARTURES + "/{code}", "sal-001").statusCode()).isIn(400, 404);
+    assertError(as(administrator()).filter(Contract.answers()).get(DEPARTURES + "/{code}", "sal-001"), 400, "VALIDATION_ERROR");
   }
 
   // ---- the start
