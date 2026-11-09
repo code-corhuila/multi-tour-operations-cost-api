@@ -99,7 +99,7 @@ public final class SaveServices {
   }
 
   private void judgeAgainst(List<ReservationOfDeparture> held, List<ServiceRecord> entries) {
-    Map<UUID, ReservationOfDeparture> byId = held.stream().collect(Collectors.toMap(ReservationOfDeparture::reservationId, Function.identity()));
+    Map<UUID, ReservationOfDeparture> byId = held.stream().collect(Collectors.toMap(ReservationOfDeparture::reservationId, Function.identity(), (first, again) -> first));
     for (ServiceRecord entry : entries) {
       ReservationOfDeparture reservation = byId.get(entry.reservationId());
       if (reservation == null) {
