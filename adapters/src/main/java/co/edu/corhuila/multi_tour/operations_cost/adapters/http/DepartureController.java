@@ -123,9 +123,10 @@ class DepartureController {
   DeparturePage list(
       HttpServletRequest request, @RequestParam(name = "page", defaultValue = "1") int page,
       @RequestParam(name = "limit", defaultValue = "20") int limit, @RequestParam(name = "status", required = false) String status) {
-    request.getParameterMap().keySet().stream().filter(name -> !LIST_PARAMETERS.contains(name)).findFirst().ifPresent(name -> {
-      throw new InvalidDataException("parameter", "The parameter " + name + " is not declared");
-    });
+    // the name is the caller's text, so it is not echoed back
+    if (!LIST_PARAMETERS.containsAll(request.getParameterMap().keySet())) {
+      throw new InvalidDataException("parameter", "A parameter of the request is not declared by this route");
+    }
     Caller caller = (Caller) request.getAttribute(JwtAuthFilter.CALLER);
     Page<DepartureView> found = listDepartures.execute(new ListDepartures.Query(caller, Optional.ofNullable(status).map(DepartureController::statusOf), page, limit));
     return new DeparturePage(found.data().stream().map(DepartureResponse::of).toList(),
