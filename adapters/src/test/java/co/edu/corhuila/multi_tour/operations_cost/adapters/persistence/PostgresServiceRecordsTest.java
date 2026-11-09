@@ -76,7 +76,7 @@ class PostgresServiceRecordsTest extends PostgresTest {
     var row = jdbc.sql("SELECT recorded_by, recorded_at FROM salida_service WHERE salida_id = :id AND reservation_id = :reservation")
         .param("id", departure.id()).param("reservation", RESERVATION_1).query().singleRow();
     assertThat(row.get("recorded_by")).isEqualTo(RECORDER);
-    assertThat(((java.time.OffsetDateTime) row.get("recorded_at")).toInstant()).isEqualTo(NOW);
+    assertThat(((java.sql.Timestamp) row.get("recorded_at")).toInstant()).isEqualTo(NOW);
   }
 
   @Test
@@ -109,5 +109,21 @@ class PostgresServiceRecordsTest extends PostgresTest {
       records().saveAll(stranger, departure.id(), List.of(delivered(RESERVATION_2, 1, "x")), RECORDER, NOW);
       return null;
     })).isInstanceOf(Exception.class);
+  }
+
+  @Test
+  void I_another_tenant_cannot_overwrite_the_record_of_the_same_reservation() {
+    UUID tenant = UUID.randomUUID();
+    UUID stranger = UUID.randomUUID();
+    Departure departure = running(tenant);
+    transaction.run(() -> {
+      records().saveAll(tenant, departure.id(), List.of(delivered(RESERVATION_1, 4, null)), RECORDER, NOW);
+      return null;
+    });
+    assertThatThrownBy(() -> transaction.run(() -> {
+      records().saveAll(stranger, departure.id(), List.of(delivered(RESERVATION_1, 1, "x")), RECORDER, NOW);
+      return null;
+    })).isInstanceOf(IllegalStateException.class);
+    assertThat(records().recordedFor(tenant, departure.id())).containsExactly(delivered(RESERVATION_1, 4, null));
   }
 }
