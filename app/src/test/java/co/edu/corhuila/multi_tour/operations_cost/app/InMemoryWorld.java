@@ -117,6 +117,28 @@ final class InMemoryWorld
   }
 
   @Override
+  public boolean updateExecution(Departure from, Departure to) {
+    Departure current = departures.get(from.id());
+    if (current == null || !current.tenantId().equals(from.tenantId()) || current.status() != from.status()) {
+      return false;
+    }
+    departures.put(to.id(), to);
+    return true;
+  }
+
+  @Override
+  public co.edu.corhuila.multi_tour.operations_cost.core.outbox.Page<Departure> page(
+      UUID tenantId, Optional<DepartureStatus> status, int page, int limit) {
+    List<Departure> matching = departures.values().stream()
+        .filter(d -> d.tenantId().equals(tenantId) && status.map(s -> s == d.status()).orElse(true))
+        .sorted(Comparator.<Departure, Instant>comparing(Departure::start).thenComparing(Departure::code).reversed())
+        .toList();
+    int from = Math.min((page - 1) * limit, matching.size());
+    return new co.edu.corhuila.multi_tour.operations_cost.core.outbox.Page<>(
+        matching.subList(from, Math.min(from + limit, matching.size())), page, limit, matching.size());
+  }
+
+  @Override
   public boolean waiting(UUID tenantId, UUID aggregateId, String eventType) {
     return events.stream().anyMatch(e -> e.tenantId().equals(tenantId) && e.aggregateId().equals(aggregateId) && e.eventType().equals(eventType));
   }
