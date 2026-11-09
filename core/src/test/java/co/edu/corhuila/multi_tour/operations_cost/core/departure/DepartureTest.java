@@ -28,6 +28,16 @@ class DepartureTest {
   }
 
   @Test
+  void D_start_alert_only_while_scheduled_and_past_the_start() {
+    assertThat(inState(DepartureStatus.SCHEDULED).startAlert(START.minusSeconds(1))).isFalse();
+    assertThat(inState(DepartureStatus.SCHEDULED).startAlert(START)).isTrue();
+    assertThat(inState(DepartureStatus.SCHEDULED).startAlert(START.plus(Duration.ofDays(1)))).isTrue();
+    for (DepartureStatus status : new DepartureStatus[] {DepartureStatus.IN_EXECUTION, DepartureStatus.FINISHED, DepartureStatus.CANCELLED}) {
+      assertThat(inState(status).startAlert(START.plus(Duration.ofDays(1)))).as(status.name()).isFalse();
+    }
+  }
+
+  @Test
   void D_born_scheduled_with_all_fields() {
     Departure departure = scheduled(START, START.plus(Duration.ofHours(8)));
     assertThat(departure.status()).isEqualTo(DepartureStatus.SCHEDULED);

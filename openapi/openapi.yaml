@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
   title: Multi Tour — operations-cost (the operations built so far)
-  version: 0.5.0
+  version: 0.6.0
   description: |
-    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.5.0) that the contract gate loads (ADR-004 D7). It keeps
+    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.6.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
     only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
     differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
     service and tested apart), `Departure` flattened without `mark` and the typed lists, and the
@@ -731,7 +731,7 @@ components:
             format: uuid
     Departure:
       type: object
-      required: [code, serviceId, status, scheduledStart, scheduledEnd, capacity, booked, pendingRegularization, vehicles, interrupted]
+      required: [code, serviceId, status, scheduledStart, scheduledEnd, capacity, booked, pendingRegularization, startAlert, vehicles, interrupted]
       properties:
         code:
           type: string
@@ -742,6 +742,9 @@ components:
         pendingRegularization:
           type: boolean
           description: Since 0.5.0, the mark of a departure past its estimated end with no closing (PDR section 16); always `false` until part B of HU-OPS-003
+        startAlert:
+          type: boolean
+          description: Since 0.6.0, true while the departure is `SCHEDULED` and its scheduled start has passed; derived by the service, never stored
         actualStart:
           type: string
           format: date-time

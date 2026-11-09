@@ -19,6 +19,7 @@ import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.Vehicle;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
+import java.time.Clock;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
@@ -55,21 +56,21 @@ class DepartureController {
   @JsonInclude(JsonInclude.Include.NON_NULL)
   record DepartureResponse(
       String code, UUID serviceId, String status, Instant scheduledStart, Instant scheduledEnd, int capacity, int booked, int tourCapacity,
-      int vehicleCapacity, boolean transportRequired, boolean pendingRegularization, Instant actualStart, Instant actualEnd,
+      int vehicleCapacity, boolean transportRequired, boolean pendingRegularization, boolean startAlert, Instant actualStart, Instant actualEnd,
       boolean interrupted, String interruptionCause, List<VehicleResponse> vehicles) {
 
     /** The answers of scheduling, rescheduling and adding vehicles: they do not read the seats held, so they say 0. */
-    static DepartureResponse of(Departure departure, int tourCapacity, boolean transportRequired, List<Vehicle> vehicles) {
-      return of(DepartureView.of(departure, tourCapacity, transportRequired, 0, vehicles));
+    static DepartureResponse of(Departure departure, int tourCapacity, boolean transportRequired, List<Vehicle> vehicles, Instant now) {
+      return of(DepartureView.of(departure, tourCapacity, transportRequired, 0, vehicles), now);
     }
 
     /** The capacity is the one the core computed: the route carries it and computes nothing. */
-    static DepartureResponse of(DepartureView view) {
+    static DepartureResponse of(DepartureView view, Instant now) {
       Departure departure = view.departure();
       DepartureExecution run = departure.execution();
       return new DepartureResponse(departure.code(), departure.serviceId(), departure.status().name(), departure.start(), departure.estimatedEnd(),
           view.capacity(), view.booked(), view.tourCapacity(), view.vehicleCapacity(), view.transportRequired(),
-          false, run.actualStart(), run.actualEnd(), run.interrupted(), run.interruptionCause(),
+          false, departure.startAlert(now), run.actualStart(), run.actualEnd(), run.interrupted(), run.interruptionCause(),
           view.vehicles().stream().map(VehicleResponse::of).toList());
     }
   }
@@ -101,10 +102,12 @@ class DepartureController {
   private final GetDeparture getDeparture;
   private final StartDeparture startDeparture;
   private final FinishDeparture finishDeparture;
+  private final Clock clock;
 
   DepartureController(
       ScheduleDeparture scheduleDeparture, RescheduleDeparture rescheduleDeparture, AddDepartureVehicles addDepartureVehicles,
-      ListDepartures listDepartures, GetDeparture getDeparture, StartDeparture startDeparture, FinishDeparture finishDeparture) {
+      ListDepartures listDepartures, GetDeparture getDeparture, StartDeparture startDeparture, FinishDeparture finishDeparture,
+      Clock clock) {
     this.scheduleDeparture = scheduleDeparture;
     this.rescheduleDeparture = rescheduleDeparture;
     this.addDepartureVehicles = addDepartureVehicles;
@@ -112,6 +115,7 @@ class DepartureController {
     this.getDeparture = getDeparture;
     this.startDeparture = startDeparture;
     this.finishDeparture = finishDeparture;
+    this.clock = clock;
   }
 
   /** A parameter the route does not declare is refused, never ignored (Annex C). */
@@ -125,7 +129,9 @@ class DepartureController {
     }
     Caller caller = (Caller) request.getAttribute(JwtAuthFilter.CALLER);
     Page<DepartureView> found = listDepartures.execute(new ListDepartures.Query(caller, Optional.ofNullable(status).map(DepartureController::statusOf), page, limit));
-    return new DeparturePage(found.data().stream().map(DepartureResponse::of).toList(),
+    // one instant for the whole page, so every row is judged at the same moment
+    Instant now = clock.instant();
+    return new DeparturePage(found.data().stream().map(view -> DepartureResponse.of(view, now)).toList(),
         new Meta(found.page(), found.limit(), found.total(), found.totalPages()));
   }
 
@@ -133,7 +139,7 @@ class DepartureController {
   DepartureResponse read(HttpServletRequest request, @PathVariable String departureCode) {
     requireCode(departureCode);
     Caller caller = (Caller) request.getAttribute(JwtAuthFilter.CALLER);
-    return DepartureResponse.of(getDeparture.execute(new GetDeparture.Query(caller, departureCode)));
+    return DepartureResponse.of(getDeparture.execute(new GetDeparture.Query(caller, departureCode)), clock.instant());
   }
 
   @PostMapping(path = "/departures/{departureCode}/executions", consumes = "application/json")
@@ -162,8 +168,8 @@ class DepartureController {
     return recorded(result.view(), result.recorded());
   }
 
-  private static ResponseEntity<DepartureResponse> recorded(DepartureView view, boolean created) {
-    DepartureResponse response = DepartureResponse.of(view);
+  private ResponseEntity<DepartureResponse> recorded(DepartureView view, boolean created) {
+    DepartureResponse response = DepartureResponse.of(view, clock.instant());
     return created
         ? ResponseEntity.status(HttpStatus.CREATED).location(URI.create(DEPARTURES + "/" + view.departure().code())).body(response)
         : ResponseEntity.ok(response);
@@ -186,7 +192,7 @@ class DepartureController {
     Caller caller = (Caller) request.getAttribute(JwtAuthFilter.CALLER);
     RescheduleDeparture.Rescheduled result = rescheduleDeparture.execute(new RescheduleDeparture.Command(
         caller, departureCode, body.scheduledStart(), body.scheduledEnd(), MDC.get("traceId")));
-    return ResponseEntity.ok(DepartureResponse.of(result.departure(), result.capacity(), result.transportRequired(), result.vehicles()));
+    return ResponseEntity.ok(DepartureResponse.of(result.departure(), result.capacity(), result.transportRequired(), result.vehicles(), clock.instant()));
   }
 
   @PostMapping(path = "/departures", consumes = "application/json")
@@ -200,7 +206,7 @@ class DepartureController {
         caller, idempotencyKey, body.serviceId(), body.scheduledStart(), body.scheduledEnd(), body.timeZone(),
         MDC.get("traceId"), body.vehicleIds() == null ? List.of() : body.vehicleIds()));
     Departure departure = result.departure();
-    DepartureResponse response = DepartureResponse.of(departure, result.capacity(), result.transportRequired(), result.vehicles());
+    DepartureResponse response = DepartureResponse.of(departure, result.capacity(), result.transportRequired(), result.vehicles(), clock.instant());
     if (!result.created()) {
       return ResponseEntity.ok(response);
     }
@@ -217,7 +223,7 @@ class DepartureController {
     AddDepartureVehicles.Added result = addDepartureVehicles.execute(
         new AddDepartureVehicles.Command(caller, departureCode, body.vehicleIds(), MDC.get("traceId")));
     return ResponseEntity.ok(DepartureResponse.of(
-        result.departure(), result.tour().capacity(), result.tour().transportRequired(), result.vehicles()));
+        result.departure(), result.tour().capacity(), result.tour().transportRequired(), result.vehicles(), clock.instant()));
   }
 
   private static void requireCode(String departureCode) {
