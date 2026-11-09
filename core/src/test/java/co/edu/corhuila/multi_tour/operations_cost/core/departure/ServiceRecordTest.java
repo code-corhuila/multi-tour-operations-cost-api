@@ -46,6 +46,12 @@ class ServiceRecordTest {
   }
 
   @Test
+  void D_cause_limit_is_500_and_a_no_show_still_needs_one() {
+    notDelivered("x".repeat(500), false).checkAgainst(2);
+    assertThatThrownBy(() -> notDelivered(null, true).checkAgainst(2)).isInstanceOf(InvalidDataException.class);
+  }
+
+  @Test
   void D_no_show_is_not_delivered_and_charged() {
     ServiceRecord noShow = notDelivered("did not come, no notice", true);
     assertThat(noShow.noShow()).isTrue();
