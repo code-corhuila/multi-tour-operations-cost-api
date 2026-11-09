@@ -16,7 +16,6 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.StartDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.outbox.Page;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Caller;
 import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.Vehicle;
-import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.VehicleCapacity;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import jakarta.servlet.http.HttpServletRequest;
 import java.net.URI;
@@ -61,20 +60,17 @@ class DepartureController {
 
     /** The answers of scheduling, rescheduling and adding vehicles: they do not read the seats held, so they say 0. */
     static DepartureResponse of(Departure departure, int tourCapacity, boolean transportRequired, List<Vehicle> vehicles) {
-      return of(departure, tourCapacity, transportRequired, 0, vehicles);
+      return of(DepartureView.of(departure, tourCapacity, transportRequired, 0, vehicles));
     }
 
+    /** The capacity is the one the core computed: the route carries it and computes nothing. */
     static DepartureResponse of(DepartureView view) {
-      return of(view.departure(), view.tourCapacity(), view.transportRequired(), view.booked(), view.vehicles());
-    }
-
-    private static DepartureResponse of(Departure departure, int tourCapacity, boolean transportRequired, int booked, List<Vehicle> vehicles) {
-      int vehicleTotal = VehicleCapacity.total(vehicles);
+      Departure departure = view.departure();
       DepartureExecution run = departure.execution();
       return new DepartureResponse(departure.code(), departure.serviceId(), departure.status().name(), departure.start(), departure.estimatedEnd(),
-          VehicleCapacity.effective(tourCapacity, transportRequired, vehicleTotal), booked, tourCapacity, vehicleTotal, transportRequired,
+          view.capacity(), view.booked(), view.tourCapacity(), view.vehicleCapacity(), view.transportRequired(),
           false, run.actualStart(), run.actualEnd(), run.interrupted(), run.interruptionCause(),
-          vehicles.stream().map(VehicleResponse::of).toList());
+          view.vehicles().stream().map(VehicleResponse::of).toList());
     }
   }
 
