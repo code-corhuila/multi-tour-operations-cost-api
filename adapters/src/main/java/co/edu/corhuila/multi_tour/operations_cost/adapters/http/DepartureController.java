@@ -86,7 +86,11 @@ class DepartureController {
   /** The body of {@code finishDeparture}: a normal end carries no cause, an interruption carries it. */
   record FinishRequest(Instant finishedAt, String result, String cause) {}
 
-  /** The body of {@code regularizeDeparture}: the result, the real hours and what the result needs. */
+  /**
+   * The body of {@code regularizeDeparture}: the result, the real hours and what the result needs. {@code notCarriedOutCause} is in the
+   * contract and is accepted but not read: {@code NOT_CARRIED_OUT} is refused until HU-OPS-006 (which needs it), and leaving it out would
+   * make the service refuse a body the contract allows.
+   */
   record RegularizeRequest(
       String result, Instant actualStart, Instant actualEnd, String earlyStartReason, String interruption, String notCarriedOutCause) {}
 
