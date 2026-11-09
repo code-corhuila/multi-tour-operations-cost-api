@@ -118,7 +118,8 @@ final class InMemoryWorld
 
   @Override
   public boolean updateExecution(Departure from, Departure to) {
-    if (!departures.getOrDefault(from.id(), to).equals(from)) {
+    Departure current = departures.get(from.id());
+    if (current == null || !current.tenantId().equals(from.tenantId()) || current.status() != from.status()) {
       return false;
     }
     departures.put(to.id(), to);

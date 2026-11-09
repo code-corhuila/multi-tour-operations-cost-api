@@ -107,6 +107,46 @@ class PostgresDepartureExecutionTest extends PostgresTest {
   }
 
   @Test
+  void I_a_normal_end_round_trips_without_an_interruption() {
+    UUID tenant = UUID.randomUUID();
+    Departure created = began(tenant, NOW.minus(Duration.ofHours(3)));
+    Departure started = created.start(NOW.minus(Duration.ofHours(2)), STARTER, NOW);
+    assertThat(departures.updateExecution(created, started)).isTrue();
+    Departure finished = started.finish(NOW.minus(Duration.ofMinutes(5)), FINISHER, NOW, null);
+    assertThat(departures.updateExecution(started, finished)).isTrue();
+    Departure read = departures.find(tenant, created.id()).orElseThrow();
+    assertThat(read).isEqualTo(finished);
+    assertThat(read.execution().interrupted()).isFalse();
+    assertThat(read.execution().interruptionCause()).isNull();
+  }
+
+  @Test
+  void I_two_ends_at_once_only_one_wins() throws Exception {
+    UUID tenant = UUID.randomUUID();
+    Departure created = began(tenant, NOW.minus(Duration.ofHours(3)));
+    Departure started = created.start(NOW.minus(Duration.ofHours(2)), STARTER, NOW);
+    assertThat(departures.updateExecution(created, started)).isTrue();
+    Departure a = started.finish(NOW.minus(Duration.ofMinutes(10)), STARTER, NOW, null);
+    Departure b = started.finish(NOW.minus(Duration.ofMinutes(5)), FINISHER, NOW, "Heavy rain");
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      CountDownLatch go = new CountDownLatch(1);
+      Future<Boolean> first = pool.submit(() -> {
+        go.await();
+        return departures.updateExecution(started, a);
+      });
+      Future<Boolean> second = pool.submit(() -> {
+        go.await();
+        return departures.updateExecution(started, b);
+      });
+      go.countDown();
+      assertThat(List.of(first.get(), second.get())).containsExactlyInAnyOrder(true, false);
+    } finally {
+      pool.shutdownNow();
+    }
+  }
+
+  @Test
   void I_the_page_lists_the_tenant_most_recent_first_and_filters_by_status() {
     UUID tenant = UUID.randomUUID();
     Departure oldest = began(tenant, NOW.minus(Duration.ofDays(5)));
@@ -126,5 +166,7 @@ class PostgresDepartureExecutionTest extends PostgresTest {
     assertThat(running.total()).isEqualTo(1);
     assertThat(running.data()).containsExactly(started);
     assertThat(departures.page(tenant, Optional.of(DepartureStatus.CANCELLED), 1, 20).total()).isZero();
+    assertThat(departures.page(tenant, Optional.of(DepartureStatus.SCHEDULED), 1, 20).data()).extracting(Departure::code)
+        .containsExactly(newest.code(), oldest.code());
   }
 }
