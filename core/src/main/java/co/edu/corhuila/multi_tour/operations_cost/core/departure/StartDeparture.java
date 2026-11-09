@@ -50,7 +50,7 @@ public final class StartDeparture {
         .orElseThrow(() -> new DepartureNotFoundException(command.departureCode()));
     var previous = keys.departureOf(tenantId, IdempotencyKeys.START, command.idempotencyKey());
     if (previous.isPresent()) {
-      return new Started(views.of(departures.find(tenantId, previous.get()).orElse(departure)), false);
+      return repeat(tenantId, departure, previous.get());
     }
     // the state is judged before another domain is asked anything
     if (departure.status() != DepartureStatus.SCHEDULED) {
@@ -58,17 +58,35 @@ public final class StartDeparture {
     }
     DepartureReads reads = views.read(departure);
     Instant now = clock.instant();
-    Departure started = transaction.run(() -> {
-      Departure current = departures.findForUpdate(tenantId, departure.id())
-          .orElseThrow(() -> new DepartureNotFoundException(command.departureCode()));
-      Departure changed = current.start(command.startedAt(), account, now);
-      if (!departures.updateExecution(current, changed)) {
-        throw new InvalidStatusTransitionException(current.status(), "be started");
+    Departure started;
+    try {
+      started = transaction.run(() -> {
+        Departure current = departures.findForUpdate(tenantId, departure.id())
+            .orElseThrow(() -> new DepartureNotFoundException(command.departureCode()));
+        Departure changed = current.start(command.startedAt(), account, now);
+        if (!departures.updateExecution(current, changed)) {
+          throw new InvalidStatusTransitionException(current.status(), "be started");
+        }
+        keys.register(tenantId, IdempotencyKeys.START, command.idempotencyKey(), changed.id());
+        outbox.add(ExecutionEvents.started(ids.next(), changed, account, command.correlationId(), now));
+        return changed;
+      });
+    } catch (InvalidStatusTransitionException | DuplicateKeyException lostTheRace) {
+      // another request with the same key committed first and this one rolled back: its departure is the answer
+      var winner = keys.departureOf(tenantId, IdempotencyKeys.START, command.idempotencyKey());
+      if (winner.isEmpty()) {
+        throw lostTheRace;
       }
-      keys.register(tenantId, IdempotencyKeys.START, command.idempotencyKey(), changed.id());
-      outbox.add(ExecutionEvents.started(ids.next(), changed, account, command.correlationId(), now));
-      return changed;
-    });
+      return repeat(tenantId, departure, winner.get());
+    }
     return new Started(reads.view(started), true);
+  }
+
+  /** A repeat answers the departure that the key was registered for, and only that one: a key is not good for another departure. */
+  private Started repeat(UUID tenantId, Departure asked, UUID registeredFor) {
+    if (!registeredFor.equals(asked.id())) {
+      throw new BusinessRuleViolationException("The Idempotency-Key was already used for another departure");
+    }
+    return new Started(views.of(departures.find(tenantId, registeredFor).orElse(asked)), false);
   }
 }
