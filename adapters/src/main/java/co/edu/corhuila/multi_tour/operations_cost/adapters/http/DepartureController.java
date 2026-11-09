@@ -70,7 +70,7 @@ class DepartureController {
       DepartureExecution run = departure.execution();
       return new DepartureResponse(departure.code(), departure.serviceId(), departure.status().name(), departure.start(), departure.estimatedEnd(),
           view.capacity(), view.booked(), view.tourCapacity(), view.vehicleCapacity(), view.transportRequired(),
-          false, departure.startAlert(now), run.actualStart(), run.actualEnd(), run.interrupted(), run.interruptionCause(),
+          run.pendingRegularization(), departure.startAlert(now), run.actualStart(), run.actualEnd(), run.interrupted(), run.interruptionCause(),
           view.vehicles().stream().map(VehicleResponse::of).toList());
     }
   }
