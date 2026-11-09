@@ -7,6 +7,7 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureReposi
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DuplicateKeyException;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DependencyUnavailableException;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdempotencyKeys;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.MarkPendingRegularization;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.OutboxEvent;
@@ -119,6 +120,16 @@ final class InMemoryWorld
   public boolean updateSchedule(Departure from, Departure to) {
     departures.put(to.id(), to);
     return true;
+  }
+
+  @Override
+  public List<Departure> lockOpenPastEnd(Instant now, int limit) {
+    return departures.values().stream()
+        .filter(d -> (d.status() == DepartureStatus.SCHEDULED || d.status() == DepartureStatus.IN_EXECUTION)
+            && !d.execution().pendingRegularization() && !d.estimatedEnd().isAfter(now))
+        .sorted(Comparator.comparing(Departure::estimatedEnd).thenComparing(Departure::id))
+        .limit(limit)
+        .toList();
   }
 
   @Override
@@ -313,6 +324,12 @@ final class InMemoryWorld
     @Primary
     StartDeparture testStartDeparture(DepartureViews views) {
       return new StartDeparture(WORLD, WORLD, WORLD, views, WORLD, UUID::randomUUID, Clock.systemUTC());
+    }
+
+    @Bean
+    @Primary
+    MarkPendingRegularization testMarkPendingRegularization() {
+      return new MarkPendingRegularization(WORLD, WORLD, WORLD, UUID::randomUUID, Clock.systemUTC());
     }
 
     @Bean
