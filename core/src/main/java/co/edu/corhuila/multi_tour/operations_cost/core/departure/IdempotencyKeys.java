@@ -10,6 +10,7 @@ public interface IdempotencyKeys {
   String START = "registerStart";
   String FINISH = "finishDeparture";
   String REGULARIZE = "regularizeDeparture";
+  String SAVE_SERVICES = "saveServices";
 
   Optional<UUID> departureOf(UUID tenantId, String operation, String key);
 
