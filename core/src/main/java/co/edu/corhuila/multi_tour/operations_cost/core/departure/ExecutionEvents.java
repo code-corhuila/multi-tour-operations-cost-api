@@ -26,6 +26,15 @@ final class ExecutionEvents {
     return new OutboxEvent(eventId, "SalidaFinalized", departure.id(), departure.tenantId(), account, trace, payload, at);
   }
 
+  /** The mark is made by the system, not by a person: the event has no actor. */
+  static OutboxEvent markedPending(UUID eventId, Departure departure, String trace, Instant at) {
+    Map<String, Object> payload = base(departure);
+    payload.put("code", departure.code());
+    payload.put("estimatedEnd", departure.estimatedEnd().toString());
+    payload.put("markedAt", departure.execution().pendingMarkedAt().toString());
+    return new OutboxEvent(eventId, "SalidaMarkedPendienteDeRegularizacion", departure.id(), departure.tenantId(), null, trace, payload, at);
+  }
+
   private static Map<String, Object> base(Departure departure) {
     Map<String, Object> payload = new LinkedHashMap<>();
     payload.put("tenantId", departure.tenantId().toString());

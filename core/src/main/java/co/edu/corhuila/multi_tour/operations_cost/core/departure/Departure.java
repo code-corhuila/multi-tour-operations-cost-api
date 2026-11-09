@@ -85,7 +85,9 @@ public record Departure(
     if (hasSchedule(newStart, newEnd)) {
       return this;
     }
-    Departure changed = new Departure(id, tenantId, code, serviceId, newStart, newEnd, timeZone, status, scheduledBy, scheduledAt);
+    // a new schedule is no longer past its end: the mark goes, its moment stays (PDR Q1)
+    Departure changed = new Departure(id, tenantId, code, serviceId, newStart, newEnd, timeZone, status, scheduledBy, scheduledAt,
+        execution.unmarked());
     changed.requireNotBegun(newStart, now);
     return changed;
   }
@@ -136,6 +138,22 @@ public record Departure(
 
   private Departure withExecution(DepartureStatus newStatus, DepartureExecution newExecution) {
     return new Departure(id, tenantId, code, serviceId, start, estimatedEnd, timeZone, newStatus, scheduledBy, scheduledAt, newExecution);
+  }
+
+  /**
+   * The same departure, marked pending regularization because its estimated end has passed with no closing (PDR section 16, L4).
+   * The mark is not a state and closes nothing: only a person records what happened. Only an open departure that is not marked yet
+   * is marked, and never before its estimated end.
+   */
+  public Departure markPending(Instant now) {
+    Objects.requireNonNull(now, "now");
+    if ((status != DepartureStatus.SCHEDULED && status != DepartureStatus.IN_EXECUTION) || execution.pendingRegularization()) {
+      throw new InvalidStatusTransitionException(status, "be marked pending regularization");
+    }
+    if (estimatedEnd.isAfter(now)) {
+      throw new BusinessRuleViolationException("A departure is marked only after its estimated end");
+    }
+    return withExecution(status, execution.marked(now));
   }
 
   /** The alert of RN-EJE-001: still scheduled when its scheduled start has arrived. Derived for each answer, never stored. */
