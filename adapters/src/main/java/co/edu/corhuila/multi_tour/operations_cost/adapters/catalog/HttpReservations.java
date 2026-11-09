@@ -9,6 +9,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.function.Predicate;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.client.RestClient;
@@ -56,24 +57,26 @@ public final class HttpReservations implements Reservations {
   public Map<UUID, Seats> seatsOfTour(UUID serviceId) {
     Map<UUID, Seats> found = new HashMap<>();
     // a partial map would make a departure on a page that was not read look like one that has no row, so the walk never ends early
-    walk(serviceId, row -> {
+    boolean wholeList = walk(serviceId, row -> {
       found.put(UUID.fromString(row.path("departureId").asText()), seats(row));
       return false;
     });
-    return Map.copyOf(found);
+    // a tour that disappears half way is a tour that is not there, not a list of the pages already read
+    return wholeList ? Map.copyOf(found) : Map.of();
   }
 
   /**
    * Walks the pages of the list of departures of a tour (the only place that pages it), offering each row to {@code stopAt}, which says
-   * whether the walk has what it came for. A tour that is not there, or a list that ends, is an end without a stop; more than
+   * whether the walk has what it came for. It answers false when the tour is not there (or stops being there half way) and true
+   * when the list ended or the walk stopped; more than
    * {@code MAX_PAGES} pages is "not available" and not "not there", because the row looked for may be on a page that was not read.
    */
-  private void walk(UUID serviceId, java.util.function.Predicate<JsonNode> stopAt) {
+  private boolean walk(UUID serviceId, Predicate<JsonNode> stopAt) {
     try {
       for (int page = 1; page <= MAX_PAGES; page++) {
         JsonNode body = read(serviceId, page);
         if (body == null) {
-          return;
+          return false;
         }
         JsonNode rows = body.get("data");
         JsonNode totalPages = body.path("meta").get("totalPages");
@@ -82,11 +85,11 @@ public final class HttpReservations implements Reservations {
         }
         for (JsonNode row : rows) {
           if (stopAt.test(row)) {
-            return;
+            return true;
           }
         }
         if (page >= totalPages.asInt()) {
-          return;
+          return true;
         }
       }
       LOG.warn("The tour {} has more than {} pages of departures", serviceId, MAX_PAGES);
