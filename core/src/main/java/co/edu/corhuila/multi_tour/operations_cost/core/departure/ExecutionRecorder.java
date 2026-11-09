@@ -3,7 +3,9 @@ package co.edu.corhuila.multi_tour.operations_cost.core.departure;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Caller;
 import java.time.Clock;
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
+import java.util.function.Consumer;
 
 /**
  * The flow that every recording of what happened in a departure shares (HU-OPS-003, api 004 D-04): the start and the end today, and
@@ -20,9 +22,18 @@ final class ExecutionRecorder {
     Departure apply(Departure current, UUID account, Instant now);
   }
 
-  /** The event that tells the other domains about the change. */
-  interface Announce {
+  /** One event that tells the other domains about the change. */
+  interface Single {
     OutboxEvent event(UUID eventId, Departure changed, UUID account, String trace, Instant at);
+  }
+
+  /** The events that tell the other domains about the change, in the order they must be read. */
+  interface Announce {
+    List<OutboxEvent> events(IdGenerator ids, Departure changed, UUID account, String trace, Instant at);
+
+    static Announce one(Single single) {
+      return (ids, changed, account, trace, at) -> List.of(single.event(ids.next(), changed, account, trace, at));
+    }
   }
 
   /** What a recording answers: the departure as it is now, and whether this request recorded it (false for a repeat). */
@@ -50,10 +61,17 @@ final class ExecutionRecorder {
 
   /**
    * What each recording says of itself: the operation of its key, the state it needs and the action it names when the state is not
-   * that, what only it can judge of the request (called after the caller, the key and the trace and before anything is read), the
-   * change and the event.
+   * that, what else the departure must be to admit it (judged with the state, before another domain is asked anything), what only it
+   * can judge of the request (called after the caller, the key and the trace and before anything is read), the change and the events.
    */
-  record Spec(String operation, DepartureStatus needs, String action, Runnable judgeRequest, Change change, Announce announce) {}
+  record Spec(
+      String operation, DepartureStatus needs, String action, Consumer<Departure> admits, Runnable judgeRequest, Change change,
+      Announce announce) {
+
+    Spec(String operation, DepartureStatus needs, String action, Runnable judgeRequest, Change change, Announce announce) {
+      this(operation, needs, action, departure -> {}, judgeRequest, change, announce);
+    }
+  }
 
   Outcome record(Caller caller, String departureCode, String key, String trace, Spec spec) {
     String operation = spec.operation();
@@ -73,6 +91,7 @@ final class ExecutionRecorder {
     if (departure.status() != needs) {
       throw new InvalidStatusTransitionException(departure.status(), action);
     }
+    spec.admits().accept(departure);
     DepartureReads reads = views.read(departure);
     Instant now = clock.instant();
     Departure changed;
@@ -84,7 +103,7 @@ final class ExecutionRecorder {
           throw new InvalidStatusTransitionException(current.status(), action);
         }
         keys.register(tenantId, operation, key, next.id());
-        outbox.add(spec.announce().event(ids.next(), next, account, trace, now));
+        spec.announce().events(ids, next, account, trace, now).forEach(outbox::add);
         return next;
       });
     } catch (InvalidStatusTransitionException | DuplicateKeyException lostTheRace) {

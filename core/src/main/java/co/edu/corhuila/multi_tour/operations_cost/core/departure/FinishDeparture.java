@@ -33,7 +33,7 @@ public final class FinishDeparture {
                 throw new InvalidDataException("finishedAt", "The field finishedAt is missing or not valid");
               }
             },
-            (current, account, now) -> current.finish(command.finishedAt(), account, now, command.interruptionCause()), ExecutionEvents::finalized));
+            (current, account, now) -> current.finish(command.finishedAt(), account, now, command.interruptionCause()), ExecutionRecorder.Announce.one(ExecutionEvents::finalized)));
     return new Finished(outcome.view(), outcome.recorded());
   }
 }

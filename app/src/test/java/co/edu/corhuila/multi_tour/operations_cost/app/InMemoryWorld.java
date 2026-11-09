@@ -9,6 +9,7 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.DependencyUnava
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdempotencyKeys;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.MarkPendingRegularization;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.RegularizeDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.OutboxEvent;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDeparture;
@@ -324,6 +325,12 @@ final class InMemoryWorld
     @Primary
     StartDeparture testStartDeparture(DepartureViews views) {
       return new StartDeparture(WORLD, WORLD, WORLD, views, WORLD, UUID::randomUUID, Clock.systemUTC());
+    }
+
+    @Bean
+    @Primary
+    RegularizeDeparture testRegularizeDeparture(DepartureViews views) {
+      return new RegularizeDeparture(WORLD, WORLD, WORLD, views, WORLD, UUID::randomUUID, Clock.systemUTC());
     }
 
     @Bean
