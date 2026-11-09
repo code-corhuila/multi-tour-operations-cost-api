@@ -48,13 +48,22 @@ final class ExecutionRecorder {
     this.clock = clock;
   }
 
-  Outcome record(
-      Caller caller, String departureCode, String key, String trace, String operation, DepartureStatus needs, String action, Change change,
-      Announce announce) {
+  /**
+   * What each recording says of itself: the operation of its key, the state it needs and the action it names when the state is not
+   * that, what only it can judge of the request (called after the caller, the key and the trace and before anything is read), the
+   * change and the event.
+   */
+  record Spec(String operation, DepartureStatus needs, String action, Runnable judgeRequest, Change change, Announce announce) {}
+
+  Outcome record(Caller caller, String departureCode, String key, String trace, Spec spec) {
+    String operation = spec.operation();
+    DepartureStatus needs = spec.needs();
+    String action = spec.action();
     UUID tenantId = Requests.uuid(caller.tenantId());
     UUID account = Requests.uuid(caller.subject());
     Requests.requireKey(key);
     Requests.requireTrace(trace);
+    spec.judgeRequest().run();
     Departure departure = departures.findByCode(tenantId, departureCode).orElseThrow(() -> new DepartureNotFoundException(departureCode));
     var previous = keys.departureOf(tenantId, operation, key);
     if (previous.isPresent()) {
@@ -70,12 +79,12 @@ final class ExecutionRecorder {
     try {
       changed = transaction.run(() -> {
         Departure current = departures.findForUpdate(tenantId, departure.id()).orElseThrow(() -> new DepartureNotFoundException(departureCode));
-        Departure next = change.apply(current, account, now);
+        Departure next = spec.change().apply(current, account, now);
         if (!departures.updateExecution(current, next)) {
           throw new InvalidStatusTransitionException(current.status(), action);
         }
         keys.register(tenantId, operation, key, next.id());
-        outbox.add(announce.event(ids.next(), next, account, trace, now));
+        outbox.add(spec.announce().event(ids.next(), next, account, trace, now));
         return next;
       });
     } catch (InvalidStatusTransitionException | DuplicateKeyException lostTheRace) {

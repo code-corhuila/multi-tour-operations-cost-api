@@ -26,12 +26,14 @@ public final class FinishDeparture {
   public record Finished(DepartureView view, boolean recorded) {}
 
   public Finished execute(Command command) {
-    if (command.finishedAt() == null) {
-      throw new InvalidDataException("finishedAt", "The field finishedAt is missing or not valid");
-    }
     var outcome = recorder.record(command.caller(), command.departureCode(), command.idempotencyKey(), command.correlationId(),
-        IdempotencyKeys.FINISH, DepartureStatus.IN_EXECUTION, "be finished",
-        (current, account, now) -> current.finish(command.finishedAt(), account, now, command.interruptionCause()), ExecutionEvents::finalized);
+        new ExecutionRecorder.Spec(IdempotencyKeys.FINISH, DepartureStatus.IN_EXECUTION, "be finished",
+            () -> {
+              if (command.finishedAt() == null) {
+                throw new InvalidDataException("finishedAt", "The field finishedAt is missing or not valid");
+              }
+            },
+            (current, account, now) -> current.finish(command.finishedAt(), account, now, command.interruptionCause()), ExecutionEvents::finalized));
     return new Finished(outcome.view(), outcome.recorded());
   }
 }

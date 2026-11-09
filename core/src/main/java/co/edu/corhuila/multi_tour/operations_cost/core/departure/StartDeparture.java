@@ -24,12 +24,14 @@ public final class StartDeparture {
   public record Started(DepartureView view, boolean recorded) {}
 
   public Started execute(Command command) {
-    if (command.startedAt() == null) {
-      throw new InvalidDataException("startedAt", "The field startedAt is missing or not valid");
-    }
     var outcome = recorder.record(command.caller(), command.departureCode(), command.idempotencyKey(), command.correlationId(),
-        IdempotencyKeys.START, DepartureStatus.SCHEDULED, "be started",
-        (current, account, now) -> current.start(command.startedAt(), account, now), ExecutionEvents::started);
+        new ExecutionRecorder.Spec(IdempotencyKeys.START, DepartureStatus.SCHEDULED, "be started",
+            () -> {
+              if (command.startedAt() == null) {
+                throw new InvalidDataException("startedAt", "The field startedAt is missing or not valid");
+              }
+            },
+            (current, account, now) -> current.start(command.startedAt(), account, now), ExecutionEvents::started));
     return new Started(outcome.view(), outcome.recorded());
   }
 }
