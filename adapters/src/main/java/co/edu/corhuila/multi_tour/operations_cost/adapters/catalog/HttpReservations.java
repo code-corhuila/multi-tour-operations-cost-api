@@ -5,6 +5,8 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import java.time.Duration;
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
@@ -61,6 +63,38 @@ public final class HttpReservations implements Reservations {
       }
       // the departure may be on a page that was not read: that is not the same as not being there
       LOG.warn("The departure {} is not in the first {} pages of the tour {}", departureId, MAX_PAGES, serviceId);
+      throw new DependencyUnavailableException("reservations");
+    } catch (DependencyUnavailableException unavailable) {
+      throw unavailable;
+    } catch (RuntimeException failure) {
+      LOG.warn("The reservations could not be read for the tour {}: {}", serviceId, failure.getClass().getSimpleName());
+      throw new DependencyUnavailableException("reservations");
+    }
+  }
+
+  @Override
+  public Map<UUID, Seats> seatsOfTour(UUID serviceId) {
+    try {
+      Map<UUID, Seats> found = new HashMap<>();
+      for (int page = 1; page <= MAX_PAGES; page++) {
+        JsonNode body = read(serviceId, page);
+        if (body == null) {
+          return Map.of();
+        }
+        JsonNode rows = body.get("data");
+        JsonNode totalPages = body.path("meta").get("totalPages");
+        if (rows == null || !rows.isArray() || totalPages == null || !totalPages.isInt()) {
+          throw new IllegalStateException("the list is not what the contract says");
+        }
+        for (JsonNode row : rows) {
+          found.put(UUID.fromString(row.path("departureId").asText()), seats(row));
+        }
+        if (page >= totalPages.asInt()) {
+          return Map.copyOf(found);
+        }
+      }
+      // a partial map would make a departure on a page that was not read look like one that has no row
+      LOG.warn("The tour {} has more than {} pages of departures", serviceId, MAX_PAGES);
       throw new DependencyUnavailableException("reservations");
     } catch (DependencyUnavailableException unavailable) {
       throw unavailable;

@@ -1,5 +1,6 @@
 package co.edu.corhuila.multi_tour.operations_cost.core.departure;
 
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -14,4 +15,11 @@ public interface Reservations {
    * event yet). Throws {@link DependencyUnavailableException} when it cannot say.
    */
   Optional<Seats> seatsOf(UUID serviceId, UUID departureId);
+
+  /**
+   * The seats of every departure of the tour that commercial-reservation has a row for, by departure id: one read for the whole
+   * tour, so a list of departures does not read the same list once per departure. Empty when it has no row of the tour. Throws
+   * {@link DependencyUnavailableException} when it cannot say, or when the answer would be partial.
+   */
+  Map<UUID, Seats> seatsOfTour(UUID serviceId);
 }
