@@ -83,4 +83,21 @@ class RouteAuthorizationTest {
     assertThat(RouteAuthorization.allows("GET", BASE + "/internal/outbox/events",
         person(Role.TENANT_ADMINISTRATOR, Permission.MANAGE_DEPARTURE_EXECUTION))).isFalse();
   }
+
+  @Test
+  void C_the_platform_with_the_permission_opens_nothing_and_a_disguised_or_malformed_path_is_refused_to_everyone() {
+    Caller platform = new Caller("root", null, Set.of(Role.PLATFORM_ADMINISTRATOR), Set.of(Permission.MANAGE_DEPARTURE_EXECUTION));
+    for (String[] route : EXECUTION_ROUTES) {
+      assertThat(RouteAuthorization.allows(route[0], route[1], platform)).as(route[1]).isFalse();
+    }
+    Caller administrator = person(Role.TENANT_ADMINISTRATOR, Permission.MANAGE_DEPARTURE_EXECUTION);
+    for (String uri : new String[] {BASE + "/departures/SAL-001/../x", BASE + "/departures/SAL-001/%65xecutions", BASE + "//departures",
+        BASE + "/departures;x=1"}) {
+      assertThat(RouteAuthorization.allows("GET", uri, administrator)).as(uri).isFalse();
+    }
+    Caller collaborator = person(Role.OPERATIONAL_COLLABORATOR, Permission.MANAGE_DEPARTURE_EXECUTION);
+    for (String uri : new String[] {BASE + "/departures/SAL-001/", BASE + "/departures/sal-001", BASE + "/departures/SAL-1", BASE + "/departures/"}) {
+      assertThat(RouteAuthorization.allows("GET", uri, collaborator)).as(uri).isFalse();
+    }
+  }
 }
