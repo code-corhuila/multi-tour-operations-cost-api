@@ -187,6 +187,48 @@ class RecordCostTest {
   }
 
   @Test
+  void A_an_invalid_body_is_400_even_on_a_departure_that_has_not_started_or_with_the_catalog_down() {
+    departure(2, DepartureStatus.SCHEDULED, TENANT);
+    assertThatThrownBy(() -> record.execute(new RecordCost.Command(person, "SAL-002", KEY, " ", CostMode.MANUAL, 100L, "x", TRACE)))
+        .isInstanceOf(InvalidDataException.class).extracting("field").isEqualTo("concept");
+    world.catalogDown = true;
+    assertThatThrownBy(() -> record.execute(new RecordCost.Command(person, "SAL-001", KEY, "Fuel", CostMode.MANUAL, null, "x", TRACE)))
+        .isInstanceOf(InvalidDataException.class).extracting("field").isEqualTo("amountCents");
+    assertThatThrownBy(() -> record.execute(new RecordCost.Command(person, "SAL-001", KEY, "Fuel", CostMode.MANUAL, 100L, "j".repeat(501), TRACE)))
+        .isInstanceOf(InvalidDataException.class).extracting("field").isEqualTo("justification");
+    assertThat(world.catalogCalls).isZero();
+  }
+
+  @Test
+  void A_the_travelers_served_are_read_after_the_lock_so_a_concurrent_save_is_counted() {
+    catalogued(1_000L);
+    served(running.id(), 4);
+    world.onLock = () -> served(running.id(), 6);
+    RecordCost.Recorded result = record.execute(calculation("SAL-001", KEY));
+    assertThat(result.cost().travelersServed()).isEqualTo(6);
+    assertThat(result.cost().amountCents()).isEqualTo(6_000L);
+  }
+
+  @Test
+  void A_the_event_carries_no_free_text_and_the_same_key_in_another_tenant_is_another_key() {
+    record.execute(expense("SAL-001", KEY, 50_000L, "Paid at the dock, no catalogued cost"));
+    assertThat(world.events.get(0).payload()).doesNotContainKeys("concept", "justification");
+    assertThat(world.findByKey(TENANT, KEY)).isPresent();
+    assertThat(world.findByKey(OTHER_TENANT, KEY)).isEmpty();
+  }
+
+  @Test
+  void A_the_sheet_does_not_mix_the_lines_of_other_departures() {
+    Departure other = departure(2, DepartureStatus.SCHEDULED, TENANT).start(START.plus(Duration.ofMinutes(5)), ACCOUNT, NOW);
+    world.departures.put(other.id(), other);
+    record.execute(expense("SAL-001", KEY, 50_000L, "x"));
+    record.execute(expense("SAL-002", "cost-key-00002", 70_000L, "x"));
+    ListCosts.Sheet sheet = list.execute(new ListCosts.Query(person, "SAL-001"));
+    assertThat(sheet.costs()).hasSize(1);
+    assertThat(sheet.totalCents()).isEqualTo(50_000L);
+  }
+
+  @Test
   void A_the_mode_is_required() {
     assertThatThrownBy(() -> record.execute(new RecordCost.Command(person, "SAL-001", KEY, "Boat", null, 1L, null, TRACE)))
         .isInstanceOf(InvalidDataException.class).extracting("field").isEqualTo("mode");
