@@ -58,6 +58,22 @@ public record OperationalCost(
     return new OperationalCost(costId, tenantId, departureId, text, amountCents, CostMode.MANUAL, null, null, true, why, by, at);
   }
 
+  /**
+   * What a request can be judged for before anyone else is asked anything (a field error, 400): the concept, the amount of a real
+   * expense and the length of its justification. What depends on the catalog or on the travelers served is judged later.
+   */
+  public static void judgeRequest(String concept, CostMode mode, Long amountCents, String justification) {
+    concept(concept);
+    if (mode == CostMode.MANUAL) {
+      if (amountCents == null || amountCents <= 0) {
+        throw new InvalidDataException("amountCents", "The amount is missing or not above 0");
+      }
+      if (justification != null && justification.strip().length() > JUSTIFICATION_MAX) {
+        throw new InvalidDataException("justification", "The justification has 1 to " + JUSTIFICATION_MAX + " characters");
+      }
+    }
+  }
+
   private static String concept(String concept) {
     String text = concept == null ? "" : concept.strip();
     if (text.isEmpty() || text.length() > CONCEPT_MAX) {
