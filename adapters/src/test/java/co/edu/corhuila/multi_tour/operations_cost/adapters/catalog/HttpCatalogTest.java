@@ -229,10 +229,9 @@ class HttpCatalogTest {
 
   @Test
   void A_a_catalogued_cost_that_is_not_an_integer_is_not_available() {
-    for (String bad : new String[] {"\"21000000\"", "1.5", "true", "{\"a\":1}"}) {
+    for (String bad : new String[] {"\"21000000\"", "1.5", "true", "{\"a\":1}", "99999999999999999999"}) {
       body = itemWithCost(bad);
       assertThatThrownBy(() -> catalog.tour(TOUR)).isInstanceOf(DependencyUnavailableException.class);
     }
   }
 }
-
