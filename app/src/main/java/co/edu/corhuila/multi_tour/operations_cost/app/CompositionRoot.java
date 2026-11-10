@@ -25,7 +25,9 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.MarkPendingRegu
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RegularizeDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDeparture;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ListCosts;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.OperationalCosts;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordCost;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.SaveServices;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecords;
@@ -206,6 +208,18 @@ class CompositionRoot {
   @Bean
   GetDeparture getDeparture(DepartureRepository departures, DepartureViews views, ServicesReader services) {
     return new GetDeparture(departures, views, services);
+  }
+
+  @Bean
+  RecordCost recordCost(
+      DepartureRepository departures, OperationalCosts costs, ServiceRecords services, Catalog catalog, Outbox outbox, Transaction transaction,
+      IdGenerator ids, Clock clock) {
+    return new RecordCost(departures, costs, services, catalog, outbox, transaction, ids, clock);
+  }
+
+  @Bean
+  ListCosts listCosts(DepartureRepository departures, OperationalCosts costs, ServiceRecords services, Catalog catalog) {
+    return new ListCosts(departures, costs, services, catalog);
   }
 
   @Bean
