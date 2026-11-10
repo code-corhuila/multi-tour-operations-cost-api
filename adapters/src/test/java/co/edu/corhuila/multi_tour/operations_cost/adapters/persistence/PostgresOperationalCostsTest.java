@@ -160,8 +160,8 @@ class PostgresOperationalCostsTest extends PostgresTest {
       return null;
     });
     assertThatThrownBy(() -> jdbc.sql("UPDATE salida_cost SET amount_cents = 1 WHERE tenant_id = :tenant").param("tenant", tenant).update())
-        .hasMessageContaining("permission denied");
+        .rootCause().hasMessageContaining("permission denied");
     assertThatThrownBy(() -> jdbc.sql("DELETE FROM salida_cost WHERE tenant_id = :tenant").param("tenant", tenant).update())
-        .hasMessageContaining("permission denied");
+        .rootCause().hasMessageContaining("permission denied");
   }
 }

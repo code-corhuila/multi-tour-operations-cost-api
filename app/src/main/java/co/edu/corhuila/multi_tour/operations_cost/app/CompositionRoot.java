@@ -5,6 +5,7 @@ import co.edu.corhuila.multi_tour.operations_cost.adapters.catalog.HttpReservati
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcDepartureRepository;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcIdempotencyKeys;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutbox;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOperationalCosts;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutboxEvents;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcServiceRecords;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcTransaction;
@@ -24,6 +25,7 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.MarkPendingRegu
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RegularizeDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDeparture;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.OperationalCosts;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.SaveServices;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecords;
@@ -99,6 +101,11 @@ class CompositionRoot {
   @Bean
   IdempotencyKeys idempotencyKeys(JdbcClient jdbc) {
     return new JdbcIdempotencyKeys(jdbc);
+  }
+
+  @Bean
+  OperationalCosts operationalCosts(JdbcClient jdbc) {
+    return new JdbcOperationalCosts(jdbc);
   }
 
   @Bean
