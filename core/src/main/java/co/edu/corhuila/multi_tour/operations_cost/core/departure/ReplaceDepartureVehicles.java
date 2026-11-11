@@ -54,21 +54,13 @@ public final class ReplaceDepartureVehicles {
     List<UUID> vehicleIds = Requests.vehicleIds(command.vehicleIds(), 1);
     Departure departure = departures.findByCode(tenantId, command.departureCode())
         .orElseThrow(() -> new DepartureNotFoundException(command.departureCode()));
-    if (departure.status() != DepartureStatus.SCHEDULED) {
-      throw new InvalidStatusTransitionException(departure.status(), "change its vehicles");
-    }
-    CatalogTour tour = catalog.tour(departure.serviceId())
-        .orElseThrow(() -> new BusinessRuleViolationException("The tour is not in the catalog of the tenant"));
-    if (!tour.transportRequired()) {
-      throw new BusinessRuleViolationException("The tour does not require transport, so it takes no vehicles");
-    }
+    VehicleChangeRules.requireScheduled(departure, "change its vehicles");
+    CatalogTour tour = VehicleChangeRules.requireTransportTour(catalog, departure);
     Instant now = clock.instant();
     return transaction.run(() -> {
       Departure current = departures.findForUpdate(tenantId, departure.id())
           .orElseThrow(() -> new DepartureNotFoundException(command.departureCode()));
-      if (current.status() != DepartureStatus.SCHEDULED) {
-        throw new InvalidStatusTransitionException(current.status(), "change its vehicles");
-      }
+      VehicleChangeRules.requireScheduled(current, "change its vehicles");
       VehicleRules.requireKnown(vehicles, tenantId, vehicleIds);
       List<Vehicle> before = vehicles.ofDeparture(tenantId, current.id());
       List<UUID> beforeIds = before.stream().map(Vehicle::id).toList();
