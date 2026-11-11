@@ -2,6 +2,7 @@ package co.edu.corhuila.multi_tour.operations_cost.adapters.security;
 
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Caller;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.CallerNotAllowedException;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.ExceptionalAccessAudit;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Permission;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Role;
 import jakarta.servlet.http.HttpServletRequest;
@@ -19,6 +20,12 @@ import org.springframework.web.servlet.HandlerInterceptor;
  */
 public final class RouteAuthorization implements HandlerInterceptor {
 
+  private final ExceptionalAccessAudit audit;
+
+  public RouteAuthorization(ExceptionalAccessAudit audit) {
+    this.audit = audit;
+  }
+
   private static final String INTERNAL = "/api/v1/operations-cost/internal/";
   private static final Set<Role> PEOPLE = Set.of(Role.TENANT_ADMINISTRATOR);
   private static final Set<Role> SERVICES = Set.of(Role.SERVICE);
@@ -32,6 +39,11 @@ public final class RouteAuthorization implements HandlerInterceptor {
   public boolean preHandle(HttpServletRequest request, HttpServletResponse response, Object handler) {
     if (!(request.getAttribute(JwtAuthFilter.CALLER) instanceof Caller who) || !allows(request.getMethod(), request.getRequestURI(), who)) {
       throw new CallerNotAllowedException();
+    }
+    if (who.exceptional() != null) {
+      // allowed only with an area, so the fact of the use is written for a read that is let through and never for a refusal (spec 012)
+      String uri = request.getRequestURI();
+      audit.used(who, request.getMethod(), ExceptionalAccessPolicy.template(uri), ExceptionalAccessPolicy.areaOf(request.getMethod(), uri).orElseThrow());
     }
     return true;
   }
