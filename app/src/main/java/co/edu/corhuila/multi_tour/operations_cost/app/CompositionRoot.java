@@ -19,7 +19,9 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.ListDepartures;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.StartDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Catalog;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureRepository;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.security.OutboxExceptionalAccessAudit;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdGenerator;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.ExceptionalAccessAudit;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdempotencyKeys;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.MarkPendingRegularization;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
@@ -98,6 +100,11 @@ class CompositionRoot {
   @Bean
   Outbox outbox(JdbcClient jdbc, ObjectMapper json) {
     return new JdbcOutbox(jdbc, json);
+  }
+
+  @Bean
+  ExceptionalAccessAudit exceptionalAccessAudit(Outbox outbox, IdGenerator ids, Clock clock) {
+    return new OutboxExceptionalAccessAudit(outbox, ids, clock);
   }
 
   @Bean
