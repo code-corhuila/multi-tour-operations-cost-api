@@ -179,9 +179,9 @@ class JwtFilterTest extends ShellTest {
 
   @Test
   void C_a_write_with_the_token_is_forbidden_and_a_read_outside_the_scope_is_forbidden() {
-    assertThat(given().header("Authorization", bearer(exceptional("exceptional", List.of("OPERATIONS")))).post("/api/v1/operations-cost/vehicles").statusCode()).isEqualTo(403);
+    assertThat(given().header("Authorization", bearer(exceptional("exceptional", List.of("OPERATIONS")))).contentType("application/json").body("{}").post("/api/v1/operations-cost/vehicles").statusCode()).isEqualTo(403);
     assertThat(given().header("Authorization", bearer(exceptional("exceptional", List.of("CASH")))).get("/api/v1/operations-cost/probe/whoami").statusCode()).isEqualTo(403);
-    assertThat(given().header("Authorization", bearer(exceptional("exceptional", List.of("OPERATIONS")))).get("/api/v1/operations-cost/internal/outbox/events").statusCode()).isEqualTo(403);
+    assertThat(given().header("Authorization", bearer(exceptional("exceptional", List.of("OPERATIONS")))).get("/api/v1/operations-cost/internal/outbox").statusCode()).isEqualTo(403);
   }
 
   @Test
@@ -194,6 +194,7 @@ class JwtFilterTest extends ShellTest {
   void A_a_token_with_access_and_no_authorization_id_is_refused_and_so_is_an_unknown_scope_word() {
     assertRefused(bearer(exceptional("exceptional", List.of("OPERATIONS")).claim("authorizationId", null)));
     assertRefused(bearer(exceptional("exceptional", List.of("OPERATIONS")).claim("authorizationId", "not-a-uuid")));
+    assertRefused(bearer(exceptional("exceptional", List.of("OPERATIONS")).claim("authorizationId", "1-1-1-1-1")));
     assertRefused(bearer(exceptional("exceptional", List.of("OPERATIONS", "EVERYTHING"))));
     assertRefused(bearer(exceptional("exceptional", List.of())));
     assertRefused(bearer(exceptional("exceptional", List.of("OPERATIONS")).claim("scope", "OPERATIONS")));
