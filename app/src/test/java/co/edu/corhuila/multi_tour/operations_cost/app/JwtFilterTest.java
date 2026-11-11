@@ -161,6 +161,47 @@ class JwtFilterTest extends ShellTest {
     assertRefused(bearer(claims("account-1", 600, ADMIN, TENANT).claim("permissions", List.of(1, 2))));
   }
 
+  private static final String PLATFORM = "PLATFORM_ADMINISTRATOR";
+  private static final String AUTHORIZATION_ID = "3f2b8c1e-1111-4222-8333-444455556666";
+
+  private static JWTClaimsSet.Builder exceptional(String access, List<String> scope) {
+    return claims("platform-admin-1", 600, List.of(PLATFORM), TENANT).claim("access", access).claim("scope", scope).claim("authorizationId", AUTHORIZATION_ID);
+  }
+
+  @Test
+  void C_the_exceptional_and_the_emergency_token_pass_the_filter_and_read() {
+    for (String access : List.of("exceptional", "emergency")) {
+      Response response = given().header("Authorization", bearer(exceptional(access, List.of("OPERATIONS", "SENSITIVE")))).get("/api/v1/operations-cost/probe/whoami");
+      assertThat(response.statusCode()).as(access).isEqualTo(200);
+      assertThat(response.jsonPath().getString("tenantId")).isEqualTo(TENANT);
+    }
+  }
+
+  @Test
+  void C_a_write_with_the_token_is_forbidden_and_a_read_outside_the_scope_is_forbidden() {
+    assertThat(given().header("Authorization", bearer(exceptional("exceptional", List.of("OPERATIONS")))).post("/api/v1/operations-cost/vehicles").statusCode()).isEqualTo(403);
+    assertThat(given().header("Authorization", bearer(exceptional("exceptional", List.of("CASH")))).get("/api/v1/operations-cost/probe/whoami").statusCode()).isEqualTo(403);
+    assertThat(given().header("Authorization", bearer(exceptional("exceptional", List.of("OPERATIONS")))).get("/api/v1/operations-cost/internal/outbox/events").statusCode()).isEqualTo(403);
+  }
+
+  @Test
+  void C_a_platform_token_without_the_mark_is_forbidden() {
+    assertThat(given().header("Authorization", bearer(claims("platform-admin-1", 600, List.of(PLATFORM), TENANT))).get("/api/v1/operations-cost/probe/whoami").statusCode()).isEqualTo(401);
+    assertThat(given().header("Authorization", bearer(claims("platform-admin-1", 600, List.of(PLATFORM), null))).get("/api/v1/operations-cost/probe/whoami").statusCode()).isEqualTo(403);
+  }
+
+  @Test
+  void A_a_token_with_access_and_no_authorization_id_is_refused_and_so_is_an_unknown_scope_word() {
+    assertRefused(bearer(exceptional("exceptional", List.of("OPERATIONS")).claim("authorizationId", null)));
+    assertRefused(bearer(exceptional("exceptional", List.of("OPERATIONS")).claim("authorizationId", "not-a-uuid")));
+    assertRefused(bearer(exceptional("exceptional", List.of("OPERATIONS", "EVERYTHING"))));
+    assertRefused(bearer(exceptional("exceptional", List.of())));
+    assertRefused(bearer(exceptional("exceptional", List.of("OPERATIONS")).claim("scope", "OPERATIONS")));
+    // the mark narrows only the Platform Administrator for one tenant: any other shape is refused
+    assertRefused(bearer(claims("account-1", 600, ADMIN, TENANT).claim("access", "exceptional").claim("scope", List.of("OPERATIONS")).claim("authorizationId", AUTHORIZATION_ID)));
+    assertRefused(bearer(claims("platform-admin-1", 600, List.of(PLATFORM), null).claim("access", "exceptional").claim("scope", List.of("OPERATIONS")).claim("authorizationId", AUTHORIZATION_ID)));
+  }
+
   @Test
   void C_start_fails_without_the_key() {
     assertThatThrownBy(() -> start(Map.of())).hasStackTraceContaining("JWT_PUBLIC_KEY");
