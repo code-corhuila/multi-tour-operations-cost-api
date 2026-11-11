@@ -25,6 +25,8 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordCost;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Transaction;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.AddDepartureVehicles;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.PreviewVehicleChange;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ReplaceDepartureVehicles;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.BusinessRuleViolationException;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureStatus;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureViews;
@@ -359,6 +361,18 @@ final class InMemoryWorld
     @Primary
     AddDepartureVehicles testAddDepartureVehicles() {
       return new AddDepartureVehicles(WORLD, WORLD, WORLD, WORLD, WORLD, UUID::randomUUID, Clock.systemUTC());
+    }
+
+    @Bean
+    @Primary
+    PreviewVehicleChange testPreviewVehicleChange() {
+      return new PreviewVehicleChange(WORLD, WORLD, WORLD);
+    }
+
+    @Bean
+    @Primary
+    ReplaceDepartureVehicles testReplaceDepartureVehicles() {
+      return new ReplaceDepartureVehicles(WORLD, WORLD, WORLD, WORLD, WORLD, UUID::randomUUID, Clock.systemUTC());
     }
 
     @Bean
