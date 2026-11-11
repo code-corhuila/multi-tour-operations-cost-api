@@ -34,4 +34,7 @@ public interface Vehicles {
 
   /** Assigns the vehicles to the departure; one that is already there stays as it was. */
   void assign(UUID tenantId, UUID departureId, Collection<UUID> vehicleIds, UUID assignedBy, Instant assignedAt);
+
+  /** Takes those vehicles off the departure; one that is not on it is ignored. */
+  void unassign(UUID tenantId, UUID departureId, Collection<UUID> vehicleIds);
 }
