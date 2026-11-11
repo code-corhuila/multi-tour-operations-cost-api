@@ -270,6 +270,11 @@ final class FakeWorld
   }
 
   @Override
+  public void unassign(UUID tenantId, UUID departureId, Collection<UUID> vehicleIds) {
+    assignments.getOrDefault(departureId, new LinkedHashSet<>()).removeAll(vehicleIds);
+  }
+
+  @Override
   public Optional<UUID> vehicleOf(UUID tenantId, String key) {
     return Optional.ofNullable(vehicleKeys.get(tenantId + "/" + key));
   }
