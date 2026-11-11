@@ -34,14 +34,8 @@ public final class PreviewVehicleChange {
     List<UUID> vehicleIds = Requests.vehicleIds(command.vehicleIds(), 1);
     Departure departure = departures.findByCode(command.tenantId(), command.departureCode())
         .orElseThrow(() -> new DepartureNotFoundException(command.departureCode()));
-    if (departure.status() != DepartureStatus.SCHEDULED) {
-      throw new InvalidStatusTransitionException(departure.status(), "change its vehicles");
-    }
-    CatalogTour tour = catalog.tour(departure.serviceId())
-        .orElseThrow(() -> new BusinessRuleViolationException("The tour is not in the catalog of the tenant"));
-    if (!tour.transportRequired()) {
-      throw new BusinessRuleViolationException("The tour does not require transport, so it takes no vehicles");
-    }
+    VehicleChangeRules.requireScheduled(departure, "change its vehicles");
+    CatalogTour tour = VehicleChangeRules.requireTransportTour(catalog, departure);
     List<Vehicle> wanted = VehicleRules.requireKnown(vehicles, command.tenantId(), vehicleIds);
     VehicleRules.requireFree(vehicles, command.tenantId(), vehicleIds, departure.start(), departure.estimatedEnd(), departure.id());
     int today = VehicleCapacity.total(vehicles.ofDeparture(command.tenantId(), departure.id()));
