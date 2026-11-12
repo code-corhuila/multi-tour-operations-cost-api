@@ -170,6 +170,15 @@ class RecordExtraordinaryCancellationTest {
   }
 
   @Test
+  void A_a_request_that_loses_a_same_key_race_answers_the_one_recorded() {
+    world.onLock = () -> record.execute(command("SAL-001", R1, KEY, WHY));
+    RecordExtraordinaryCancellation.Recorded result = record.execute(command("SAL-001", R1, KEY, WHY));
+    assertThat(result.recorded()).isFalse();
+    assertThat(world.events).hasSize(1);
+    assertThat(world.cancellationRows.get(running.id())).containsOnlyKeys(R1);
+  }
+
+  @Test
   void A_the_departure_of_another_tenant_is_not_found() {
     Caller stranger = new Caller(ACCOUNT.toString(), new UUID(0, 0xab).toString(), Set.of(Role.TENANT_ADMINISTRATOR),
         Set.of(Permission.MANAGE_DEPARTURE_EXECUTION));

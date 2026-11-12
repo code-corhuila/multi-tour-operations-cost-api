@@ -52,6 +52,8 @@ final class FakeWorld
   // what another request committed while this one waited for the lock: a rollback of this one must not undo it
   private final Map<UUID, Departure> departuresCommittedByOthers = new HashMap<>();
   private final Map<String, UUID> keysCommittedByOthers = new HashMap<>();
+  private final Map<UUID, Map<UUID, ExtraordinaryCancellation>> cancellationsCommittedByOthers = new HashMap<>();
+  private final List<OutboxEvent> eventsCommittedByOthers = new ArrayList<>();
   int catalogCalls;
   private int ids;
 
@@ -92,6 +94,8 @@ final class FakeWorld
       serviceRows.putAll(servicesBefore);
       cancellationRows.clear();
       cancellationRows.putAll(cancellationsBefore);
+      cancellationRows.putAll(cancellationsCommittedByOthers);
+      eventsCommittedByOthers.stream().filter(e -> !events.contains(e)).forEach(events::add);
       costRows.clear();
       costRows.addAll(costsBefore);
       costKeys.clear();
@@ -124,6 +128,8 @@ final class FakeWorld
       concurrent.run();
       departuresCommittedByOthers.putAll(departures);
       keysCommittedByOthers.putAll(keys);
+      cancellationRows.forEach((departure, rows) -> cancellationsCommittedByOthers.put(departure, new LinkedHashMap<>(rows)));
+      eventsCommittedByOthers.addAll(events);
     }
     return find(tenantId, id);
   }
