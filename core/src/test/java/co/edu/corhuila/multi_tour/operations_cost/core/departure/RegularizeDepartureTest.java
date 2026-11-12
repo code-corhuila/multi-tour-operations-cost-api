@@ -161,6 +161,29 @@ class RegularizeDepartureTest {
   }
 
   @Test
+  void A_a_reason_that_is_not_valid_is_a_400_before_the_departure_or_another_domain_is_looked_at() {
+    world.reservationsDown = true;
+    for (String cause : new String[] {" ", "r".repeat(501)}) {
+      for (String code : new String[] {"SAL-001", "SAL-099"}) {
+        assertThatThrownBy(() -> regularize.execute(notCarriedOut(code, KEY, cause)))
+            .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("notCarriedOutCause"));
+      }
+    }
+  }
+
+  @Test
+  void A_not_carried_out_takes_no_hours_no_interruption_and_no_early_start_reason() {
+    for (var body : new RegularizeDeparture.Command[] {
+        new RegularizeDeparture.Command(person, "SAL-001", KEY, RegularizeDeparture.Result.NOT_CARRIED_OUT, START, END, null, null, "Nobody came", TRACE),
+        new RegularizeDeparture.Command(person, "SAL-001", KEY, RegularizeDeparture.Result.NOT_CARRIED_OUT, null, null, "Early", null, "Nobody came", TRACE),
+        new RegularizeDeparture.Command(person, "SAL-001", KEY, RegularizeDeparture.Result.NOT_CARRIED_OUT, null, null, null, "Rain", "Nobody came", TRACE)}) {
+      assertThatThrownBy(() -> regularize.execute(body)).isInstanceOf(InvalidDataException.class);
+    }
+    assertThat(world.departures.get(departure.id()).status()).isEqualTo(DepartureStatus.SCHEDULED);
+    assertThat(world.events).isEmpty();
+  }
+
+  @Test
   void A_not_carried_out_of_a_departure_that_is_not_marked_or_is_not_scheduled_is_an_invalid_transition() {
     put(2, DepartureStatus.SCHEDULED, false);
     put(3, DepartureStatus.CANCELLED, false);
