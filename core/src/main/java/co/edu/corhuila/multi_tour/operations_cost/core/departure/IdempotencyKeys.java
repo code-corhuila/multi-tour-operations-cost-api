@@ -12,6 +12,7 @@ public interface IdempotencyKeys {
   String REGULARIZE = "regularizeDeparture";
   String SAVE_SERVICES = "saveServices";
   String RECORD_EXTRAORDINARY_CANCELLATION = "recordExtraordinaryCancellation";
+  String CANCEL_DEPARTURE = "cancelDeparture";
 
   Optional<UUID> departureOf(UUID tenantId, String operation, String key);
 
