@@ -1,6 +1,7 @@
 package co.edu.corhuila.multi_tour.operations_cost.app;
 
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Catalog;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.CancelDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.CatalogTour;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Departure;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureRepository;
@@ -459,6 +460,12 @@ final class InMemoryWorld
     @Primary
     StartDeparture testStartDeparture(DepartureViews views) {
       return new StartDeparture(WORLD, WORLD, WORLD, views, WORLD, UUID::randomUUID, Clock.systemUTC());
+    }
+
+    @Bean
+    @Primary
+    CancelDeparture testCancelDeparture() {
+      return new CancelDeparture(WORLD, WORLD, WORLD, UUID::randomUUID, WORLD, Clock.systemUTC());
     }
 
     @Bean
