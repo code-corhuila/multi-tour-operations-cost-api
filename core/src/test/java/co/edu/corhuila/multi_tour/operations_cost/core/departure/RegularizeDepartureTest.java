@@ -118,11 +118,55 @@ class RegularizeDepartureTest {
     assertThat(world.events).isEmpty();
   }
 
+  private RegularizeDeparture.Command notCarriedOut(String code, String key, String cause) {
+    return new RegularizeDeparture.Command(person, code, key, RegularizeDeparture.Result.NOT_CARRIED_OUT, null, null, null, null, cause, TRACE);
+  }
+
   @Test
-  void A_not_carried_out_is_refused_until_a_departure_can_be_cancelled() {
-    assertThatThrownBy(() -> regularize.execute(command("SAL-001", KEY, RegularizeDeparture.Result.NOT_CARRIED_OUT, START, END, null, null)))
-        .isInstanceOf(BusinessRuleViolationException.class);
+  void A_not_carried_out_cancels_the_marked_departure_with_who_when_and_why() {
+    RegularizeDeparture.Regularized result = regularize.execute(notCarriedOut("SAL-001", KEY, "Nobody came to the meeting point"));
+    assertThat(result.recorded()).isTrue();
+    Departure stored = world.departures.get(departure.id());
+    assertThat(stored.status()).isEqualTo(DepartureStatus.CANCELLED);
+    assertThat(stored.execution().cancellation())
+        .isEqualTo(new Cancellation(NOW, ACCOUNT, Cancellation.Cause.NOT_CARRIED_OUT, "Nobody came to the meeting point"));
+    assertThat(stored.execution().pendingRegularization()).isFalse();
+    assertThat(result.view().departure()).isEqualTo(stored);
+    assertThat(world.events).extracting(OutboxEvent::eventType).containsExactly("SalidaCancelled");
+    assertThat(world.events.get(0).payload()).containsEntry("cause", "NOT_CARRIED_OUT").doesNotContainValue("Nobody came to the meeting point");
+    assertThat(world.events.get(0).actorId()).isEqualTo(ACCOUNT);
+    assertThat(world.keys).isNotEmpty();
+  }
+
+  @Test
+  void A_not_carried_out_repeated_with_the_same_key_answers_the_cancelled_departure_and_writes_nothing_more() {
+    regularize.execute(notCarriedOut("SAL-001", KEY, "Nobody came"));
+    RegularizeDeparture.Regularized again = regularize.execute(notCarriedOut("SAL-001", KEY, "Nobody came"));
+    assertThat(again.recorded()).isFalse();
+    assertThat(again.view().departure().status()).isEqualTo(DepartureStatus.CANCELLED);
+    assertThat(world.events).hasSize(1);
+  }
+
+  @Test
+  void A_not_carried_out_needs_its_cause_and_only_it_takes_one() {
+    for (String cause : new String[] {null, " ", "r".repeat(501)}) {
+      assertThatThrownBy(() -> regularize.execute(notCarriedOut("SAL-001", KEY, cause)))
+          .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("notCarriedOutCause"));
+    }
+    assertThatThrownBy(() -> regularize.execute(new RegularizeDeparture.Command(
+        person, "SAL-001", KEY, RegularizeDeparture.Result.EXECUTED, START, END, null, null, "A reason", TRACE)))
+        .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("notCarriedOutCause"));
     assertThat(world.departures.get(departure.id()).status()).isEqualTo(DepartureStatus.SCHEDULED);
+    assertThat(world.events).isEmpty();
+  }
+
+  @Test
+  void A_not_carried_out_of_a_departure_that_is_not_marked_or_is_not_scheduled_is_an_invalid_transition() {
+    put(2, DepartureStatus.SCHEDULED, false);
+    put(3, DepartureStatus.CANCELLED, false);
+    for (String code : new String[] {"SAL-002", "SAL-003"}) {
+      assertThatThrownBy(() -> regularize.execute(notCarriedOut(code, KEY, "Nobody came"))).isInstanceOf(InvalidStatusTransitionException.class);
+    }
     assertThat(world.events).isEmpty();
   }
 
