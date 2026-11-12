@@ -104,6 +104,15 @@ class CancelDepartureRouteTest extends ShellTest {
   }
 
   @Test
+  void C_a_key_already_used_for_another_departure_is_422_business_rule_and_writes_nothing_more() {
+    put(2, DepartureStatus.SCHEDULED, TENANT, false);
+    send(service(), TENANT, "SAL-001", KEY, body(), true);
+    assertError(send(service(), TENANT, "SAL-002", KEY, body(), true), 422, "BUSINESS_RULE_VIOLATION");
+    assertThat(world.departures.get(new UUID(0, 1002)).status()).isEqualTo(DepartureStatus.SCHEDULED);
+    assertThat(world.events).hasSize(1);
+  }
+
+  @Test
   void C_a_departure_in_execution_or_finished_is_422_invalid_status_transition() {
     put(2, DepartureStatus.IN_EXECUTION, TENANT, false);
     put(3, DepartureStatus.FINISHED, TENANT, false);
