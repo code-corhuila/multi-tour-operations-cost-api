@@ -140,6 +140,7 @@ class RegularizeDepartureRouteTest extends ShellTest {
     Map<String, Object> reasonless = body("EXECUTED", START, END);
     reasonless.put("earlyStartReason", "Not early");
     assertError(send(administrator(), KEY, reasonless, false), 400, "VALIDATION_ERROR");
+    assertError(send(administrator(), KEY, body("NOT_CARRIED_OUT", START, END), false), 400, "VALIDATION_ERROR");
     Map<String, Object> unknown = body("EXECUTED", START, END);
     unknown.put("who", "me");
     assertError(send(administrator(), KEY, unknown, false), 400, "VALIDATION_ERROR");
@@ -147,10 +148,9 @@ class RegularizeDepartureRouteTest extends ShellTest {
   }
 
   @Test
-  void C_hours_out_of_order_or_in_the_future_and_not_carried_out_are_422_business_rule() {
+  void C_hours_out_of_order_or_in_the_future_are_422_business_rule() {
     assertError(send(administrator(), KEY, body("EXECUTED", START, START.minusSeconds(1)), true), 422, "BUSINESS_RULE_VIOLATION");
     assertError(send(administrator(), KEY, body("EXECUTED", START, NOW.plusSeconds(120)), true), 422, "BUSINESS_RULE_VIOLATION");
-    assertError(send(administrator(), KEY, body("NOT_CARRIED_OUT", START, END), true), 422, "BUSINESS_RULE_VIOLATION");
     assertThat(world.departures.get(new UUID(0, 1001)).status()).isEqualTo(DepartureStatus.SCHEDULED);
   }
 
