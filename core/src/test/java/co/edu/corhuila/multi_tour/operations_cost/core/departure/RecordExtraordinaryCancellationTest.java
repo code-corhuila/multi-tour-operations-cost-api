@@ -41,7 +41,7 @@ class RecordExtraordinaryCancellationTest {
   void setUp() {
     world = new FakeWorld();
     world.tours.put(TOUR, new CatalogTour(TOUR, CatalogTour.Type.TOUR, true, 18, false));
-    record = new RecordExtraordinaryCancellation(world, world, world, world, new ServicesReader(world, world), new DepartureViews(world, world, world), world,
+    record = new RecordExtraordinaryCancellation(world, world, world, world, new ServicesReader(world, world, world), new DepartureViews(world, world, world), world,
         world, Clock.fixed(NOW, ZoneOffset.UTC));
     running = departure(1, DepartureStatus.SCHEDULED).start(START.plus(Duration.ofMinutes(5)), ACCOUNT, NOW);
     world.departures.put(running.id(), running);
@@ -86,6 +86,14 @@ class RecordExtraordinaryCancellationTest {
     assertThat(event.correlationId()).isEqualTo(TRACE);
     assertThat(event.payload()).containsEntry("tenantId", TENANT.toString()).containsEntry("salidaId", running.id().toString())
         .containsEntry("reservationId", R1.toString()).containsEntry("justification", WHY).containsEntry("recordedBy", ACCOUNT.toString());
+  }
+
+  @Test
+  void A_the_answer_shows_the_cancellation_next_to_its_reservation() {
+    RecordExtraordinaryCancellation.Recorded result = record.execute(command("SAL-001", R1, KEY, WHY));
+    var reservations = result.services().orElseThrow().reservations();
+    assertThat(reservations.get(0).cancellation()).contains(new ExtraordinaryCancellation(R1, WHY, ACCOUNT, NOW));
+    assertThat(reservations.get(1).cancellation()).isEmpty();
   }
 
   @Test

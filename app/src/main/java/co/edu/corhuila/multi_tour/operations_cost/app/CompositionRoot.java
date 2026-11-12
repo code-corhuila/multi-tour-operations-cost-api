@@ -7,6 +7,7 @@ import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcIdemp
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutbox;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOperationalCosts;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutboxEvents;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcExtraordinaryCancellations;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcServiceRecords;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcTransaction;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicleKeys;
@@ -34,6 +35,8 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.OperationalCost
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordCost;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.SaveServices;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ExtraordinaryCancellations;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordExtraordinaryCancellation;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecords;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServicesReader;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
@@ -122,6 +125,11 @@ class CompositionRoot {
   @Bean
   ServiceRecords serviceRecords(JdbcClient jdbc) {
     return new JdbcServiceRecords(jdbc);
+  }
+
+  @Bean
+  ExtraordinaryCancellations extraordinaryCancellations(JdbcClient jdbc) {
+    return new JdbcExtraordinaryCancellations(jdbc);
   }
 
   @Bean
@@ -222,8 +230,8 @@ class CompositionRoot {
   }
 
   @Bean
-  ServicesReader servicesReader(Reservations reservations, ServiceRecords records) {
-    return new ServicesReader(reservations, records);
+  ServicesReader servicesReader(Reservations reservations, ServiceRecords records, ExtraordinaryCancellations cancellations) {
+    return new ServicesReader(reservations, records, cancellations);
   }
 
   @Bean
@@ -245,9 +253,16 @@ class CompositionRoot {
 
   @Bean
   SaveServices saveServices(
-      DepartureRepository departures, ServiceRecords records, IdempotencyKeys keys, ServicesReader reader, DepartureViews views,
-      Transaction transaction, Clock clock) {
-    return new SaveServices(departures, records, keys, reader, views, transaction, clock);
+      DepartureRepository departures, ServiceRecords records, ExtraordinaryCancellations cancellations, IdempotencyKeys keys, ServicesReader reader,
+      DepartureViews views, Transaction transaction, Clock clock) {
+    return new SaveServices(departures, records, cancellations, keys, reader, views, transaction, clock);
+  }
+
+  @Bean
+  RecordExtraordinaryCancellation recordExtraordinaryCancellation(
+      DepartureRepository departures, ExtraordinaryCancellations cancellations, Outbox outbox, IdempotencyKeys keys, ServicesReader reader,
+      DepartureViews views, IdGenerator ids, Transaction transaction, Clock clock) {
+    return new RecordExtraordinaryCancellation(departures, cancellations, outbox, keys, reader, views, ids, transaction, clock);
   }
 
   @Bean

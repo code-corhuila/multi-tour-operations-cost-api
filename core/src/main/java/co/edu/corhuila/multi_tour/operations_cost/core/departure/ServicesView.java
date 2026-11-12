@@ -6,5 +6,6 @@ import java.util.Optional;
 /** The reservations of a departure with what was recorded for each, and the real base: the travelers served of the delivered ones. */
 public record ServicesView(List<ReservationView> reservations, int travelersServed) {
 
-  public record ReservationView(ReservationOfDeparture reservation, Optional<ServiceRecord> recorded) {}
+  public record ReservationView(
+      ReservationOfDeparture reservation, Optional<ServiceRecord> recorded, Optional<ExtraordinaryCancellation> cancellation) {}
 }
