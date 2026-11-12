@@ -168,4 +168,38 @@ class CancelDepartureTest {
     assertThat(world.keys).isEmpty();
     assertThat(world.events).isEmpty();
   }
+
+  @Test
+  void A_any_role_that_is_not_the_administrator_nor_a_collaborator_of_a_marked_departure_is_refused() {
+    for (Role role : new Role[] {Role.FINAL_CUSTOMER, Role.MANAGER, Role.ACCOUNTANT, Role.ANALYST, Role.PLATFORM_ADMINISTRATOR, Role.SERVICE}) {
+      assertThatThrownBy(() -> cancel.execute(command("SAL-001", KEY, ACCOUNT, role))).isInstanceOf(CallerNotAllowedException.class);
+    }
+    assertThat(world.departures.get(scheduled.id()).status()).isEqualTo(DepartureStatus.SCHEDULED);
+  }
+
+  @Test
+  void A_the_state_is_judged_before_the_role() {
+    Departure running = departure(7, DepartureStatus.SCHEDULED, NOW.minus(Duration.ofHours(1))).start(NOW.minus(Duration.ofMinutes(30)), ACCOUNT, NOW);
+    world.departures.put(running.id(), running);
+    assertThatThrownBy(() -> cancel.execute(command("SAL-007", KEY, ACCOUNT, Role.OPERATIONAL_COLLABORATOR)))
+        .isInstanceOf(InvalidStatusTransitionException.class);
+  }
+
+  @Test
+  void A_a_cancellation_that_wins_the_lock_is_answered_with_its_original_instant() {
+    Departure winner = scheduled.cancel(CAUSE, null, null, NOW.minusSeconds(30));
+    world.onLock = () -> world.departures.put(scheduled.id(), winner);
+    CancelDeparture.Cancelled result = cancel.execute(command("SAL-001", KEY, null, null));
+    assertThat(result.cancelledNow()).isFalse();
+    assertThat(result.cancelledAt()).isEqualTo(NOW.minusSeconds(30));
+    assertThat(world.events).isEmpty();
+  }
+
+  @Test
+  void A_a_key_taken_for_another_departure_by_a_request_in_parallel_is_refused() {
+    world.racedDeparture = new UUID(0, 4242);
+    assertThatThrownBy(() -> cancel.execute(command("SAL-001", KEY, null, null))).isInstanceOf(BusinessRuleViolationException.class);
+    assertThat(world.departures.get(scheduled.id()).status()).isEqualTo(DepartureStatus.SCHEDULED);
+    assertThat(world.events).isEmpty();
+  }
 }
