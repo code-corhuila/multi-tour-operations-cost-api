@@ -15,10 +15,12 @@ public final class ServicesReader {
 
   private final Reservations reservations;
   private final ServiceRecords records;
+  private final ExtraordinaryCancellations cancellations;
 
-  public ServicesReader(Reservations reservations, ServiceRecords records) {
+  public ServicesReader(Reservations reservations, ServiceRecords records, ExtraordinaryCancellations cancellations) {
     this.reservations = reservations;
     this.records = records;
+    this.cancellations = cancellations;
   }
 
   /** The reservations of a departure; throws {@link DependencyUnavailableException} when their owner cannot say. */
@@ -33,14 +35,15 @@ public final class ServicesReader {
     } catch (DependencyUnavailableException unavailable) {
       return Optional.empty();
     }
-    return Optional.of(join(held, records.recordedFor(departure.tenantId(), departure.id())));
+    return Optional.of(join(held, records.recordedFor(departure.tenantId(), departure.id()), cancellations.cancellationsOf(departure.tenantId(), departure.id())));
   }
 
   /** The same join over reservations that were already read, so a save judges and answers from one reading. */
-  public ServicesView join(List<ReservationOfDeparture> held, List<ServiceRecord> recorded) {
+  public ServicesView join(List<ReservationOfDeparture> held, List<ServiceRecord> recorded, List<ExtraordinaryCancellation> cancelled) {
     Map<UUID, ServiceRecord> byReservation = recorded.stream().collect(Collectors.toMap(ServiceRecord::reservationId, Function.identity(), (first, again) -> first));
-    List<ServicesView.ReservationView> views =
-        held.stream().map(r -> new ServicesView.ReservationView(r, Optional.ofNullable(byReservation.get(r.reservationId())))).toList();
+    Map<UUID, ExtraordinaryCancellation> cancelledBy = cancelled.stream().collect(Collectors.toMap(ExtraordinaryCancellation::reservationId, Function.identity(), (first, again) -> first));
+    List<ServicesView.ReservationView> views = held.stream().map(r -> new ServicesView.ReservationView(
+        r, Optional.ofNullable(byReservation.get(r.reservationId())), Optional.ofNullable(cancelledBy.get(r.reservationId())))).toList();
     int base = ServiceRecord.realBase(views.stream().flatMap(v -> v.recorded().stream()).toList());
     return new ServicesView(views, base);
   }

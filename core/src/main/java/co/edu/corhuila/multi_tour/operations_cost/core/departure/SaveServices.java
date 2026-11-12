@@ -24,6 +24,7 @@ public final class SaveServices {
 
   private final DepartureRepository departures;
   private final ServiceRecords records;
+  private final ExtraordinaryCancellations cancellations;
   private final IdempotencyKeys keys;
   private final ServicesReader reader;
   private final DepartureViews views;
@@ -31,10 +32,11 @@ public final class SaveServices {
   private final Clock clock;
 
   public SaveServices(
-      DepartureRepository departures, ServiceRecords records, IdempotencyKeys keys, ServicesReader reader, DepartureViews views,
-      Transaction transaction, Clock clock) {
+      DepartureRepository departures, ServiceRecords records, ExtraordinaryCancellations cancellations, IdempotencyKeys keys, ServicesReader reader,
+      DepartureViews views, Transaction transaction, Clock clock) {
     this.departures = departures;
     this.records = records;
+    this.cancellations = cancellations;
     this.keys = keys;
     this.reader = reader;
     this.views = views;
@@ -61,7 +63,7 @@ public final class SaveServices {
     }
     departure.acceptServices();
     List<ReservationOfDeparture> held = reader.reservationsOf(departure);
-    judgeAgainst(held, entries);
+    judgeAgainst(tenantId, departure, held, entries);
     DepartureReads reads = views.read(departure);
     Instant now = clock.instant();
     try {
@@ -82,7 +84,8 @@ public final class SaveServices {
       return repeat(tenantId, departure, winner.get());
     }
     Departure current = departures.find(tenantId, departure.id()).orElse(departure);
-    return new Saved(reads.view(current), Optional.of(reader.join(held, records.recordedFor(tenantId, current.id()))), true);
+    return new Saved(reads.view(current),
+        Optional.of(reader.join(held, records.recordedFor(tenantId, current.id()), cancellations.cancellationsOf(tenantId, current.id()))), true);
   }
 
   private List<ServiceRecord> judgeEntries(List<ServiceRecord> entries) {
@@ -98,7 +101,7 @@ public final class SaveServices {
     return entries;
   }
 
-  private void judgeAgainst(List<ReservationOfDeparture> held, List<ServiceRecord> entries) {
+  private void judgeAgainst(UUID tenantId, Departure departure, List<ReservationOfDeparture> held, List<ServiceRecord> entries) {
     Map<UUID, ReservationOfDeparture> byId = held.stream().collect(Collectors.toMap(ReservationOfDeparture::reservationId, Function.identity(), (first, again) -> first));
     for (ServiceRecord entry : entries) {
       ReservationOfDeparture reservation = byId.get(entry.reservationId());
@@ -107,6 +110,10 @@ public final class SaveServices {
       }
       if (reservation.state() != ReservationState.IN_EXECUTION) {
         throw new BusinessRuleViolationException("The reservation " + entry.reservationId() + " is not in execution");
+      }
+      // the state read from the owner changes only when it consumes the event, so a cancelled reservation can still look in execution for a while (api 009 D-09)
+      if (cancellations.exists(tenantId, departure.id(), entry.reservationId())) {
+        throw new BusinessRuleViolationException("The reservation " + entry.reservationId() + " was cancelled extraordinarily");
       }
       entry.checkAgainst(reservation.travelers());
     }
