@@ -198,6 +198,46 @@ class RecordPersonalEmergencyTest {
   }
 
   @Test
+  void A_a_request_that_loses_a_same_key_race_answers_the_one_recorded() {
+    world.onLock = () -> record.execute(command("SAL-001", R1, KEY, 2, DETAIL));
+    RecordPersonalEmergency.Recorded result = record.execute(command("SAL-001", R1, KEY, 2, DETAIL));
+    assertThat(result.recorded()).isFalse();
+    assertThat(world.events).hasSize(1);
+    assertThat(world.emergencyRows.get(running.id())).containsOnlyKeys(R1);
+  }
+
+  @Test
+  void A_a_request_with_another_key_that_loses_the_race_for_the_reservation_is_refused() {
+    world.onLock = () -> record.execute(command("SAL-001", R1, "emergency-key-0002", 1, "the winner"));
+    assertThatThrownBy(() -> record.execute(command("SAL-001", R1, KEY, 2, DETAIL))).isInstanceOf(BusinessRuleViolationException.class);
+    assertThat(world.events).hasSize(1);
+    assertThat(world.emergencyRows.get(running.id()).get(R1).detail()).isEqualTo("the winner");
+  }
+
+  @Test
+  void A_a_missing_type_is_refused() {
+    assertThatThrownBy(() -> record.execute(new RecordPersonalEmergency.Command(person, "SAL-001", R1.toString(), null, KEY, DETAIL, 2, TRACE)))
+        .isInstanceOf(InvalidDataException.class);
+    assertNothingWritten();
+  }
+
+  @Test
+  void A_the_same_key_still_answers_after_the_departure_finished() {
+    record.execute(command("SAL-001", R1, KEY, 2, DETAIL));
+    Departure finished = world.departures.get(running.id()).finish(NOW, ACCOUNT, NOW, null);
+    world.departures.put(finished.id(), finished);
+    RecordPersonalEmergency.Recorded again = record.execute(command("SAL-001", R1, KEY, 2, DETAIL));
+    assertThat(again.recorded()).isFalse();
+    assertThat(world.events).hasSize(1);
+  }
+
+  @Test
+  void A_the_emergencies_of_a_departure_are_read_back_through_the_port() {
+    record.execute(command("SAL-001", R1, KEY, 2, DETAIL));
+    assertThat(world.emergenciesOf(TENANT, running.id())).extracting(PersonalEmergency::reservationId).containsExactly(R1);
+  }
+
+  @Test
   void A_the_departure_of_another_tenant_is_not_found() {
     Caller stranger = new Caller(ACCOUNT.toString(), new UUID(0, 0xab).toString(), Set.of(Role.TENANT_ADMINISTRATOR),
         Set.of(Permission.MANAGE_DEPARTURE_EXECUTION));

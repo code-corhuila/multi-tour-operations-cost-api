@@ -55,6 +55,7 @@ final class FakeWorld
   private final Map<UUID, Departure> departuresCommittedByOthers = new HashMap<>();
   private final Map<String, UUID> keysCommittedByOthers = new HashMap<>();
   private final Map<UUID, Map<UUID, ExtraordinaryCancellation>> cancellationsCommittedByOthers = new HashMap<>();
+  private final Map<UUID, Map<UUID, PersonalEmergency>> emergenciesCommittedByOthers = new HashMap<>();
   private final List<OutboxEvent> eventsCommittedByOthers = new ArrayList<>();
   int catalogCalls;
   private int ids;
@@ -101,6 +102,7 @@ final class FakeWorld
       cancellationRows.putAll(cancellationsCommittedByOthers);
       emergencyRows.clear();
       emergencyRows.putAll(emergenciesBefore);
+      emergencyRows.putAll(emergenciesCommittedByOthers);
       eventsCommittedByOthers.stream().filter(e -> !events.contains(e)).forEach(events::add);
       costRows.clear();
       costRows.addAll(costsBefore);
@@ -135,6 +137,7 @@ final class FakeWorld
       departuresCommittedByOthers.putAll(departures);
       keysCommittedByOthers.putAll(keys);
       cancellationRows.forEach((departure, rows) -> cancellationsCommittedByOthers.put(departure, new LinkedHashMap<>(rows)));
+      emergencyRows.forEach((departure, rows) -> emergenciesCommittedByOthers.put(departure, new LinkedHashMap<>(rows)));
       eventsCommittedByOthers.addAll(events);
     }
     return find(tenantId, id);

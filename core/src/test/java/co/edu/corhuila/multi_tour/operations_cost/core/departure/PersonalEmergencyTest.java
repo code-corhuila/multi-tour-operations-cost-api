@@ -40,6 +40,22 @@ class PersonalEmergencyTest {
   }
 
   @Test
+  void D_a_detail_of_unicode_white_space_is_refused() {
+    assertThatThrownBy(() -> new PersonalEmergency(RESERVATION, 1, "\u00a0\u2003", ACCOUNT, NOW)).isInstanceOf(InvalidDataException.class);
+  }
+
+  @Test
+  void D_the_limit_counts_the_text_as_sent_and_the_record_keeps_it_trimmed() {
+    assertThatThrownBy(() -> new PersonalEmergency(RESERVATION, 1, "d".repeat(999) + "  ", ACCOUNT, NOW)).isInstanceOf(InvalidDataException.class);
+    assertThat(new PersonalEmergency(RESERVATION, 1, "d".repeat(998) + "  ", ACCOUNT, NOW).detail()).isEqualTo("d".repeat(998));
+  }
+
+  @Test
+  void D_the_detail_is_never_printed() {
+    assertThat(new PersonalEmergency(RESERVATION, 2, "a traveler fainted", ACCOUNT, NOW).toString()).doesNotContain("fainted").contains("affected=2");
+  }
+
+  @Test
   void D_the_record_keeps_who_when_and_how_many() {
     PersonalEmergency emergency = new PersonalEmergency(RESERVATION, 2, " a traveler fainted on the trail ", ACCOUNT, NOW);
     assertThat(emergency.reservationId()).isEqualTo(RESERVATION);
