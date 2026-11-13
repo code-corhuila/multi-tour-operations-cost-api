@@ -131,7 +131,7 @@ class ScheduleDepartureTest {
 
   @Test
   void A_a_key_shorter_than_8_or_longer_than_128_characters_is_refused() {
-    for (String bad : new String[] {null, "", "short-7", "k".repeat(129)}) {
+    for (String bad : new String[] {null, "", "short-7", "k".repeat(129), "has a space inside"}) {
       assertThatThrownBy(() -> schedule.execute(command(bad, TOUR, START, START)))
           .as(String.valueOf(bad))
           .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("Idempotency-Key"));
@@ -146,7 +146,10 @@ class ScheduleDepartureTest {
         .isInstanceOf(InvalidDataException.class);
     assertThatThrownBy(() -> schedule.execute(command(KEY, TOUR, NOW.minusSeconds(1), NOW.plusSeconds(60))))
         .isInstanceOf(BusinessRuleViolationException.class);
+    assertThatThrownBy(() -> schedule.execute(new ScheduleDeparture.Command(admin, KEY, TOUR, START, START, "Mars/Olympus", TRACE)))
+        .isInstanceOf(InvalidDataException.class);
     assertNothingWritten();
+    assertThat(world.catalogCalls).as("a bad request does not ask another domain anything").isZero();
   }
 
   @Test
