@@ -8,6 +8,7 @@ import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutbo
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOperationalCosts;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutboxEvents;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcExtraordinaryCancellations;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcPersonalEmergencies;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcServiceRecords;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcTransaction;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicleKeys;
@@ -37,6 +38,7 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordCost;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.SaveServices;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ExtraordinaryCancellations;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.PersonalEmergencies;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordExtraordinaryCancellation;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecords;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServicesReader;
@@ -131,6 +133,11 @@ class CompositionRoot {
   @Bean
   ExtraordinaryCancellations extraordinaryCancellations(JdbcClient jdbc) {
     return new JdbcExtraordinaryCancellations(jdbc);
+  }
+
+  @Bean
+  PersonalEmergencies personalEmergencies(JdbcClient jdbc) {
+    return new JdbcPersonalEmergencies(jdbc);
   }
 
   @Bean
@@ -236,8 +243,8 @@ class CompositionRoot {
   }
 
   @Bean
-  GetDeparture getDeparture(DepartureRepository departures, DepartureViews views, ServicesReader services) {
-    return new GetDeparture(departures, views, services);
+  GetDeparture getDeparture(DepartureRepository departures, DepartureViews views, ServicesReader services, PersonalEmergencies emergencies) {
+    return new GetDeparture(departures, views, services, emergencies);
   }
 
   @Bean

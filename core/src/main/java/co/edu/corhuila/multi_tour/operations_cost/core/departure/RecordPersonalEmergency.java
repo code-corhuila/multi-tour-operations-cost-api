@@ -50,8 +50,8 @@ public final class RecordPersonalEmergency {
       Caller caller, String departureCode, String reservationId, String type, String idempotencyKey, String detail, Integer affected,
       String correlationId) {}
 
-  /** The departure as it is now, and whether this request recorded the emergency (false for a repeat). */
-  public record Recorded(DepartureView view, boolean recorded) {}
+  /** The departure as it is now with its personal emergencies, and whether this request recorded the emergency (false for a repeat). */
+  public record Recorded(DepartureView view, List<PersonalEmergency> emergencies, boolean recorded) {}
 
   public Recorded execute(Command command) {
     UUID tenantId = Requests.uuid(command.caller().tenantId());
@@ -95,7 +95,7 @@ public final class RecordPersonalEmergency {
       return repeat(tenantId, departure, winner.get());
     }
     Departure current = departures.find(tenantId, departure.id()).orElse(departure);
-    return new Recorded(reads.view(current), true);
+    return new Recorded(reads.view(current), emergencies.emergenciesOf(tenantId, current.id()), true);
   }
 
   private static void requireOffered(String type) {
@@ -137,6 +137,6 @@ public final class RecordPersonalEmergency {
       throw new BusinessRuleViolationException("The Idempotency-Key was already used for another departure");
     }
     Departure current = departures.find(tenantId, registeredFor).orElse(asked);
-    return new Recorded(views.of(current), false);
+    return new Recorded(views.of(current), emergencies.emergenciesOf(tenantId, current.id()), false);
   }
 }

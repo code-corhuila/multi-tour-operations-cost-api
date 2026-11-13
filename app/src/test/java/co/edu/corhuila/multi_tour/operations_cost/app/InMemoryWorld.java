@@ -16,6 +16,8 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.OutboxEvent;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ReservationOfDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ExtraordinaryCancellation;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.PersonalEmergencies;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.PersonalEmergency;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ExtraordinaryCancellations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordExtraordinaryCancellation;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.SaveServices;
@@ -69,7 +71,7 @@ import org.springframework.context.annotation.Primary;
  * on its own: how the real adapters behave is the business of their own tests (the database, the catalog).
  */
 final class InMemoryWorld
-    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, Vehicles, VehicleKeys, ServiceRecords, OperationalCosts, ExtraordinaryCancellations {
+    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, Vehicles, VehicleKeys, ServiceRecords, OperationalCosts, ExtraordinaryCancellations, PersonalEmergencies {
 
   /** One for the whole test run: the beans of the configuration below are this one. */
   static final InMemoryWorld WORLD = new InMemoryWorld();
@@ -85,6 +87,7 @@ final class InMemoryWorld
   final Map<UUID, List<ReservationOfDeparture>> reservationRows = new HashMap<>();
   final Map<UUID, Map<UUID, ServiceRecord>> serviceRows = new HashMap<>();
   final Map<UUID, Map<UUID, ExtraordinaryCancellation>> cancellationRows = new HashMap<>();
+  final Map<UUID, Map<UUID, PersonalEmergency>> emergencyRows = new HashMap<>();
   final List<OperationalCost> costRows = new ArrayList<>();
   final Map<String, OperationalCost> costKeys = new HashMap<>();
   volatile boolean reservationsDown;
@@ -104,6 +107,7 @@ final class InMemoryWorld
       reservationRows.clear();
       serviceRows.clear();
       cancellationRows.clear();
+      emergencyRows.clear();
       costRows.clear();
       costKeys.clear();
       tours.clear();
@@ -243,6 +247,21 @@ final class InMemoryWorld
   @Override
   public boolean exists(UUID tenantId, UUID departureId, UUID reservationId) {
     return cancellationRows.getOrDefault(departureId, Map.of()).containsKey(reservationId);
+  }
+
+  @Override
+  public void add(UUID tenantId, UUID departureId, PersonalEmergency emergency) {
+    emergencyRows.computeIfAbsent(departureId, id -> new LinkedHashMap<>()).put(emergency.reservationId(), emergency);
+  }
+
+  @Override
+  public boolean hasEmergency(UUID tenantId, UUID departureId, UUID reservationId) {
+    return emergencyRows.getOrDefault(departureId, Map.of()).containsKey(reservationId);
+  }
+
+  @Override
+  public List<PersonalEmergency> emergenciesOf(UUID tenantId, UUID departureId) {
+    return List.copyOf(emergencyRows.getOrDefault(departureId, Map.of()).values());
   }
 
   @Override
@@ -429,7 +448,7 @@ final class InMemoryWorld
     @Bean
     @Primary
     GetDeparture testGetDeparture(DepartureViews views, ServicesReader reader) {
-      return new GetDeparture(WORLD, views, reader);
+      return new GetDeparture(WORLD, views, reader, WORLD);
     }
 
     @Bean
