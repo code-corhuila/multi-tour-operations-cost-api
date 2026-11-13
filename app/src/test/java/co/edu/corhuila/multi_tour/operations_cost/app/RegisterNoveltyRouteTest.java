@@ -211,6 +211,41 @@ class RegisterNoveltyRouteTest extends ShellTest {
   }
 
   @Test
+  void C_a_decimal_or_a_text_for_affected_is_400() {
+    assertError(refused(administrator(), "SAL-001", body(R1, 1.5, DETAIL), KEY), 400, "VALIDATION_ERROR");
+    assertError(refused(administrator(), "SAL-001", body(R1, "2", DETAIL), KEY), 400, "VALIDATION_ERROR");
+    assertThat(world.emergencyRows).isEmpty();
+  }
+
+  @Test
+  void C_an_administrator_without_the_permission_is_403_and_a_collaborator_with_it_records() {
+    assertError(refused(token("TENANT_ADMINISTRATOR", TENANT), "SAL-001", body(R1, 2, DETAIL), KEY), 403, "FORBIDDEN");
+    Response response = as(token("OPERATIONAL_COLLABORATOR", TENANT, PERMISSION)).filter(Contract.filter()).header("Idempotency-Key", KEY)
+        .body(body(R1, 2, DETAIL)).post(ROUTE, "SAL-001");
+    assertThat(response.statusCode()).isEqualTo(201);
+  }
+
+  @Test
+  void C_a_key_used_for_another_departure_is_422() {
+    Departure other = departure(2, DepartureStatus.SCHEDULED, TENANT).start(START.plus(Duration.ofMinutes(5)), ACCOUNT, NOW);
+    world.departures.put(other.id(), other);
+    world.reservationRows.put(other.id(), List.of(new ReservationOfDeparture(R1, "Ana Perez", 4, ReservationState.IN_EXECUTION)));
+    record(R1, 2);
+    assertError(refused(administrator(), "SAL-002", body(R1, 2, DETAIL), KEY), 422, "BUSINESS_RULE_VIOLATION");
+  }
+
+  @Test
+  void C_the_exceptional_reader_of_the_platform_never_gets_the_emergencies() {
+    record(R1, 2);
+    String exceptional = Tokens.valid(Tokens.claims(ACCOUNT.toString(), 600, List.of("PLATFORM_ADMINISTRATOR"), TENANT.toString())
+        .claim("access", "exceptional").claim("scope", List.of("OPERATIONS")).claim("authorizationId", "auth-1"));
+    Response read = as(exceptional).filter(Contract.filter()).get(DEPARTURES + "/{code}", "SAL-001");
+    assertThat(read.statusCode()).isEqualTo(200);
+    assertThat(read.jsonPath().getMap("$")).doesNotContainKey("novelties");
+    assertThat(read.asString()).doesNotContain(DETAIL);
+  }
+
+  @Test
   void C_the_departure_of_another_tenant_or_one_that_does_not_exist_is_404() {
     departure(3, DepartureStatus.SCHEDULED, OTHER_TENANT);
     assertError(refused(administrator(), "SAL-003", body(R1, 2, DETAIL), KEY), 404, "NOT_FOUND");
