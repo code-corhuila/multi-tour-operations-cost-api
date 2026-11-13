@@ -17,6 +17,8 @@ abstract class ShellTest {
   @DynamicPropertySource
   static void publicKey(DynamicPropertyRegistry registry) {
     registry.add("JWT_PUBLIC_KEY", Tokens::publicKeyPem);
+    // the pool connects only when a query asks, so an address nobody serves is enough for the shell tests
+    registry.add("DATABASE_URL", () -> "jdbc:postgresql://localhost:5432/unused");
   }
 
   @BeforeEach

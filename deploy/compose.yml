@@ -1,0 +1,26 @@
+# This service only. multi-tour-infra-postgres includes this file to compose the platform (Annex J, J.7).
+# It defines no database and no volume. `expose`, not `ports`: only the gateway is reachable from the host
+# (norm 5.6.1). The public key of the security microservice comes from the variables of the environment;
+# without it, or without the address of the database, the service stops at start with a message that names it.
+services:
+  operations-cost-api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: multi-tour-operations-cost-api:0.1.0
+    environment:
+      PORT: "8084"
+      JWT_PUBLIC_KEY: ${JWT_PUBLIC_KEY:-}
+      # the address of the single PostgreSQL instance and the user operations_cost_app (never the administrator);
+      # an empty address stops the service at start
+      DATABASE_URL: ${OPERATIONS_COST_DATABASE_URL:-}
+      DATABASE_USER: operations_cost_app
+      DATABASE_PASSWORD: ${OPERATIONS_COST_APP_PASSWORD:-}
+    expose: ["8084"]
+    read_only: true
+    tmpfs: [/tmp]
+    networks: [platform]
+
+networks:
+  platform:
+    external: true

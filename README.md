@@ -7,11 +7,11 @@ Governance and documentation live in [`multi-tour-docs`](https://github.com/code
 
 ## What it is
 
-A Java 21 / Spring Boot 3.5 service in three Maven modules: `core` (the domain and its ports, no framework), `adapters` (HTTP and PostgreSQL) and `app` (the composition root). It will own the departures of the tours, starting with scheduling them (HU-OPS-001). Today the three modules are empty: this is the base the first operations are built on.
+A Java 21 / Spring Boot 3.5 service in three Maven modules: `core` (the domain and its ports, no framework), `adapters` (HTTP) and `app` (the composition root). It will own the departures of the tours, starting with scheduling them (HU-OPS-001). Today it is the base the first operations are built on: `GET /health` without a token, the validation of the RS256 token by the service itself, one error body for every failure, the correlation id, the limits of the server and of the database pool, and a 16 KB limit on a body.
 
 ## How to start it
 
-Not yet: there is no image or composition in this repository. The base of the service, with its image and its place in the platform, comes with the next tasks of spec 001 (`07-api/specs/operations-cost/multi-tour-operations-cost-api/` in `multi-tour-docs`). The variables it will read are listed in `.env.example`.
+The image is built and run by the composition of the platform: `multi-tour-infra-postgres` includes `deploy/compose.yml`, which defines the service `operations-cost-api` on the network `platform`. It exposes 8084 and publishes no port: only the gateway is reachable from the host. It needs `JWT_PUBLIC_KEY` (or `JWT_PUBLIC_KEY_FILE`), the public key of the security microservice, and `DATABASE_URL` (a `jdbc:postgresql://` address) with `DATABASE_USER` and `DATABASE_PASSWORD` of the user `operations_cost_app`; without the key or the address the service stops at start and says which one. To try the image alone, `sh deploy/tests/deploy-check.sh` builds it, starts it with a key made on the spot and asks it for `/health` and for a protected route; it needs Docker and openssl.
 
 ## Where the data is
 
@@ -19,11 +19,11 @@ In the schema `operations_cost` of the single PostgreSQL instance of `multi-tour
 
 ## How to test it
 
-`mvn -B verify` with Java 21. It runs on every pull request to `develop` and `qa` (`ci.yml`). The code coverage floor (JaCoCo) is added with the first code.
+`mvn -B verify` with Java 21, and `sh deploy/tests/deploy-check.sh` for the image. Both run on every pull request to `develop` and `qa` (`ci.yml`). The code coverage floor (JaCoCo) is added with the first business code.
 
 ## What is missing
 
-Everything but the structure: the HTTP shell, the departures, their events. See the specs in `07-api/specs/operations-cost/multi-tour-operations-cost-api/`.
+The departures and their events, and the check of the database in `/health`. See the specs in `07-api/specs/operations-cost/multi-tour-operations-cost-api/`.
 
 ## Branching
 
