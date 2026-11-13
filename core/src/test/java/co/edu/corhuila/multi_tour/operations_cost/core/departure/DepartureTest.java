@@ -183,4 +183,12 @@ class DepartureTest {
         DepartureStatus.SCHEDULED, ACCOUNT, null))
         .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("scheduledAt"));
   }
+
+  @Test
+  void D_instants_keep_microseconds_as_the_database_does() {
+    Instant withNanos = START.plusNanos(123_456_789);
+    Departure departure = scheduled(withNanos, withNanos.plusSeconds(60));
+    assertThat(departure.start()).isEqualTo(START.plusNanos(123_456_000));
+    assertThat(departure.estimatedEnd()).isEqualTo(START.plusSeconds(60).plusNanos(123_456_000));
+  }
 }
