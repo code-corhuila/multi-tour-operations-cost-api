@@ -1,14 +1,14 @@
 openapi: 3.0.3
 info:
   title: Multi Tour — operations-cost (the operations built so far)
-  version: 0.11.0
+  version: 0.12.0
   description: |
     The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.10.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
     only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
     differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
     service and tested apart), `Departure` flattened without `mark` and the typed lists, and the
     error body, the paging parameters and the paging meta defined here instead of in `_shared.yaml`; in `rescheduleDeparture` and `recordExtraordinaryCancellation` the tags and the extensions `x-hu` and `x-permission` are left out. Since 0.5.0 (HU-OPS-003 part A) `booked` of the list, of the reading and of the start and the end is the seats held that commercial-reservation keeps; the answers of scheduling, rescheduling and adding vehicles still answer 0. The mark of pending regularization is the field `pendingRegularization`, always `false` until part B. The design contract
-    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Since 0.8.0 (HU-OPS-007) it adds `recordCost` and `listCosts`. Since 0.9.0 (HU-OPS-002 part B) it adds the two internal routes of the saga, `previewVehicleChange` and `replaceDepartureVehicles`. Since 0.10.0 (HU-OPS-005) it adds `recordExtraordinaryCancellation` and the cancellation of each reservation in `getDeparture`. Since 0.11.0 (HU-OPS-006) it adds the internal route `cancelDeparture`, the result `NOT_CARRIED_OUT` of `regularizeDeparture` and the `cancellation` of a departure. Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `previewVehicleChange`, `replaceDepartureVehicles`, `cancelDeparture`, `recordExtraordinaryCancellation`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
+    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Since 0.8.0 (HU-OPS-007) it adds `recordCost` and `listCosts`. Since 0.9.0 (HU-OPS-002 part B) it adds the two internal routes of the saga, `previewVehicleChange` and `replaceDepartureVehicles`. Since 0.10.0 (HU-OPS-005) it adds `recordExtraordinaryCancellation` and the cancellation of each reservation in `getDeparture`. Since 0.11.0 (HU-OPS-006) it adds the internal route `cancelDeparture`, the result `NOT_CARRIED_OUT` of `regularizeDeparture` and the `cancellation` of a departure. Since 0.12.0 (HU-OPS-008) it adds `registerNovelty`, offered only for the type `PERSONAL_EMERGENCY`, and the `novelties` of a departure. Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `previewVehicleChange`, `replaceDepartureVehicles`, `cancelDeparture`, `recordExtraordinaryCancellation`, `registerNovelty`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
 paths:
   /health:
     get:
@@ -362,6 +362,58 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/departures/{departureCode}/novelties:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    post:
+      operationId: registerNovelty
+      summary: Record the personal emergency of a reservation in execution (HU-OPS-008)
+      description: |
+        Since 0.12.0 only `PERSONAL_EMERGENCY` is offered; `NOVELTY` is `422 BUSINESS_RULE_VIOLATION`. `affected` is required, from 1, and
+        above the travelers of the reservation is `422 BUSINESS_RULE_VIOLATION`; `detail` is 1 to 1000 characters (`400` otherwise). Only a
+        departure `IN_EXECUTION` accepts it (`422 INVALID_STATUS_TRANSITION`), for a reservation of that departure that is in execution and
+        has no personal emergency yet (`422 BUSINESS_RULE_VIOLATION`). Writes `PersonalEmergencyRecorded` in the same transaction as the
+        record and the key; a repeat with the same `Idempotency-Key` answers `200`. `503` when the reservations cannot be read.
+        **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterNoveltyRequest'
+      responses:
+        '201':
+          description: Recorded; returns the departure as it is now, with its novelties
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the departure already recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   /api/v1/operations-cost/departures/{departureCode}/costs:
     parameters:
       - $ref: '#/components/parameters/DepartureCode'
@@ -1298,8 +1350,48 @@ components:
         novelties:
           type: array
           maxItems: 200
+          description: Since 0.12.0 the personal emergencies of the departure, in the order recorded; the list is empty without them
           items:
-            type: object
+            $ref: '#/components/schemas/Novelty'
+    RegisterNoveltyRequest:
+      type: object
+      additionalProperties: false
+      required: [reservationId, type, detail, affected]
+      properties:
+        reservationId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [NOVELTY, PERSONAL_EMERGENCY]
+          description: Only `PERSONAL_EMERGENCY` is offered since 0.12.0
+        detail:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        affected:
+          type: integer
+          minimum: 1
+          description: Travellers affected, from 1 up to the travellers of the reservation
+    Novelty:
+      type: object
+      required: [at, type, detail, who, reservationId]
+      properties:
+        at:
+          type: string
+          format: date-time
+        type:
+          type: string
+          enum: [NOVELTY, PERSONAL_EMERGENCY]
+        detail:
+          type: string
+        who:
+          type: string
+        reservationId:
+          type: string
+          format: uuid
+        affected:
+          type: integer
     SaveServicesRequest:
       type: object
       additionalProperties: false
