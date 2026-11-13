@@ -19,11 +19,11 @@ In the schema `operations_cost` of the single PostgreSQL instance of `multi-tour
 
 ## How to test it
 
-`mvn -B verify` with Java 21, and `sh deploy/tests/deploy-check.sh` for the image. Both run on every pull request to `develop` and `qa` (`ci.yml`). The code coverage floor (JaCoCo) is added with the first business code.
+`mvn -B verify` with Java 21; the persistence tests need a PostgreSQL with the schema of `multi-tour-operations-cost-db`, which `sh scripts/prepare-test-db.sh up` makes (a throwaway container) and prints as `TEST_DATABASE_URL`; without it they are skipped, and the CI fails if any was. `sh deploy/tests/deploy-check.sh` tests the image. Both run on every pull request to `develop` and `qa` (`ci.yml`). The code coverage floor (JaCoCo) is added with the first business code.
 
 ## What is missing
 
-The departures and their events, and the check of the database in `/health`. See the specs in `07-api/specs/operations-cost/multi-tour-operations-cost-api/`.
+The routes of the departures, the catalog and reservations adapters, and the check of the database in `/health`. See the specs in `07-api/specs/operations-cost/multi-tour-operations-cost-api/`.
 
 ## Branching
 

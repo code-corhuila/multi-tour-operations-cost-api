@@ -24,6 +24,7 @@ class ScheduleDepartureTest {
   private static final UUID ACCOUNT = UUID.fromString("00000000-0000-4000-8000-0000000000cc");
   private static final UUID TOUR = UUID.fromString("00000000-0000-4000-8000-0000000000bb");
   private static final String KEY = "key-0001-abcdef";
+  private static final String TRACE = "trace-42";
 
   private FakeWorld world;
   private ScheduleDeparture schedule;
@@ -37,7 +38,7 @@ class ScheduleDepartureTest {
   }
 
   private ScheduleDeparture.Command command(String key, UUID tour, Instant start, Instant end) {
-    return new ScheduleDeparture.Command(admin, key, tour, start, end, "America/Bogota");
+    return new ScheduleDeparture.Command(admin, key, tour, start, end, "America/Bogota", TRACE);
   }
 
   private ScheduleDeparture.Command command() {
@@ -72,6 +73,8 @@ class ScheduleDepartureTest {
       assertThat(event.aggregateId()).isEqualTo(departure.id());
       assertThat(event.tenantId()).isEqualTo(TENANT);
       assertThat(event.occurredAt()).isEqualTo(NOW);
+      assertThat(event.actorId()).isEqualTo(ACCOUNT);
+      assertThat(event.correlationId()).isEqualTo(TRACE);
       assertThat(event.payload())
           .containsEntry("tenantId", TENANT.toString())
           .containsEntry("salidaId", departure.id().toString())
@@ -121,7 +124,7 @@ class ScheduleDepartureTest {
     UUID otherTenant = UUID.fromString("00000000-0000-4000-8000-0000000000ab");
     Caller other = new Caller(ACCOUNT.toString(), otherTenant.toString(), Set.of(Role.TENANT_ADMINISTRATOR));
     ScheduleDeparture.Scheduled result = schedule.execute(
-        new ScheduleDeparture.Command(other, KEY, TOUR, START, START, "America/Bogota"));
+        new ScheduleDeparture.Command(other, KEY, TOUR, START, START, "America/Bogota", TRACE));
     assertThat(result.created()).isTrue();
     assertThat(world.departures).hasSize(2);
   }
@@ -163,10 +166,10 @@ class ScheduleDepartureTest {
   @Test
   void A_a_caller_whose_subject_or_tenant_is_not_a_uuid_is_not_allowed() {
     Caller noUuid = new Caller("account-1", TENANT.toString(), Set.of(Role.TENANT_ADMINISTRATOR));
-    assertThatThrownBy(() -> schedule.execute(new ScheduleDeparture.Command(noUuid, KEY, TOUR, START, START, "America/Bogota")))
+    assertThatThrownBy(() -> schedule.execute(new ScheduleDeparture.Command(noUuid, KEY, TOUR, START, START, "America/Bogota", TRACE)))
         .isInstanceOf(CallerNotAllowedException.class);
     Caller noTenantUuid = new Caller(ACCOUNT.toString(), "tenant-1", Set.of(Role.TENANT_ADMINISTRATOR));
-    assertThatThrownBy(() -> schedule.execute(new ScheduleDeparture.Command(noTenantUuid, KEY, TOUR, START, START, "America/Bogota")))
+    assertThatThrownBy(() -> schedule.execute(new ScheduleDeparture.Command(noTenantUuid, KEY, TOUR, START, START, "America/Bogota", TRACE)))
         .isInstanceOf(CallerNotAllowedException.class);
     assertNothingWritten();
   }
@@ -174,7 +177,7 @@ class ScheduleDepartureTest {
   @Test
   void A_a_caller_without_a_tenant_is_not_allowed() {
     Caller platform = new Caller(ACCOUNT.toString(), null, Set.of(Role.PLATFORM_ADMINISTRATOR));
-    assertThatThrownBy(() -> schedule.execute(new ScheduleDeparture.Command(platform, KEY, TOUR, START, START, "America/Bogota")))
+    assertThatThrownBy(() -> schedule.execute(new ScheduleDeparture.Command(platform, KEY, TOUR, START, START, "America/Bogota", TRACE)))
         .isInstanceOf(CallerNotAllowedException.class);
   }
 
@@ -210,5 +213,15 @@ class ScheduleDepartureTest {
     world.keys.put(TENANT + "/" + KEY, new UUID(9, 9));
     assertThatThrownBy(() -> schedule.execute(command())).isInstanceOf(IllegalStateException.class);
     assertThat(world.departures).isEmpty();
+  }
+
+  @Test
+  void A_a_missing_or_too_long_correlation_id_is_refused_before_anything_is_read() {
+    for (String bad : new String[] {null, "", " ", "t".repeat(129)}) {
+      assertThatThrownBy(() -> schedule.execute(
+              new ScheduleDeparture.Command(admin, KEY, TOUR, START, START, "America/Bogota", bad)))
+          .as(String.valueOf(bad)).isInstanceOf(InvalidDataException.class);
+    }
+    assertThat(world.catalogCalls).isZero();
   }
 }

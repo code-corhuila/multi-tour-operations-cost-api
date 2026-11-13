@@ -38,7 +38,9 @@ public final class ScheduleDeparture {
     this.clock = clock;
   }
 
-  public record Command(Caller caller, String idempotencyKey, UUID serviceId, Instant start, Instant end, String timeZone) {}
+  public record Command(
+      Caller caller, String idempotencyKey, UUID serviceId, Instant start, Instant end, String timeZone,
+      String correlationId) {}
 
   /** The departure, the capacity of its tour and whether this request created it (false: the key had been used). */
   public record Scheduled(Departure departure, int capacity, boolean created) {}
@@ -49,6 +51,10 @@ public final class ScheduleDeparture {
     String key = command.idempotencyKey();
     if (key == null || key.length() < MIN_KEY || key.length() > MAX_KEY) {
       throw new InvalidDataException("Idempotency-Key", "The Idempotency-Key must have 8 to 128 characters");
+    }
+    String trace = command.correlationId();
+    if (trace == null || trace.isBlank() || trace.length() > 128) {
+      throw new InvalidDataException("X-Correlation-Id", "The correlation id must have 1 to 128 characters");
     }
     var previous = alreadyCreated(tenantId, key);
     if (previous.isPresent()) {
@@ -70,7 +76,7 @@ public final class ScheduleDeparture {
             command.start(), command.end(), command.timeZone(), account, now);
         departures.save(created);
         keys.register(tenantId, key, created.id());
-        outbox.add(scheduledEvent(created, now));
+        outbox.add(scheduledEvent(created, account, trace, now));
         return created;
       });
       return new Scheduled(departure, tour.capacity(), true);
@@ -98,14 +104,14 @@ public final class ScheduleDeparture {
     }
   }
 
-  private OutboxEvent scheduledEvent(Departure departure, Instant now) {
+  private OutboxEvent scheduledEvent(Departure departure, UUID account, String trace, Instant now) {
     Map<String, Object> payload = new LinkedHashMap<>();
     payload.put("tenantId", departure.tenantId().toString());
     payload.put("salidaId", departure.id().toString());
     payload.put("serviceId", departure.serviceId().toString());
     payload.put("startsAt", departure.start().toString());
     payload.put("estimatedEndsAt", departure.estimatedEnd().toString());
-    return new OutboxEvent(ids.next(), "SalidaScheduled", departure.id(), departure.tenantId(), payload, now);
+    return new OutboxEvent(ids.next(), "SalidaScheduled", departure.id(), departure.tenantId(), account, trace, payload, now);
   }
 
   private static UUID uuid(String value) {
