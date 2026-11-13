@@ -118,6 +118,24 @@ class PostgresPersonalEmergenciesTest extends PostgresTest {
     assertThatThrownBy(() -> transaction.run(() -> {
       emergencies().add(stranger, departure.id(), emergency(RESERVATION_2, 1, "x"));
       return null;
-    })).isInstanceOf(Exception.class);
+    })).isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class).isNotInstanceOf(DuplicateKeyException.class);
+  }
+
+  @Test
+  void I_the_detail_is_stored_stripped_up_to_1000_and_the_engine_refuses_zero_travelers() {
+    UUID tenant = UUID.randomUUID();
+    Departure departure = running(tenant);
+    transaction.run(() -> {
+      emergencies().add(tenant, departure.id(), emergency(RESERVATION_1, 1, "  padded  "));
+      emergencies().add(tenant, departure.id(), emergency(RESERVATION_2, 1, "d".repeat(1000)));
+      return null;
+    });
+    assertThat(emergencies().emergenciesOf(tenant, departure.id())).extracting(PersonalEmergency::detail).containsExactlyInAnyOrder("padded", "d".repeat(1000));
+    assertThatThrownBy(() -> jdbc.sql(
+            "INSERT INTO salida_personal_emergency (tenant_id, salida_id, reservation_id, affected_travelers, detail, recorded_by, recorded_at) "
+                + "VALUES (:tenant, :departure, :reservation, 0, 'x', :by, now())")
+        .param("tenant", tenant).param("departure", departure.id()).param("reservation", UUID.randomUUID()).param("by", RECORDER).update())
+        .isInstanceOf(org.springframework.dao.DataIntegrityViolationException.class)
+        .isNotInstanceOf(DuplicateKeyException.class);
   }
 }
