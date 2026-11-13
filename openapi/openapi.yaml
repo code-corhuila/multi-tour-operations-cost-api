@@ -1,10 +1,14 @@
 openapi: 3.0.3
 info:
   title: Multi Tour — operations-cost (the operations built so far)
-  version: 0.1.0
+  version: 0.2.1
   description: |
-    The copy of `07-api/contracts/openapi/operations-cost.yaml` that the contract gate loads (ADR-004 D7). It keeps only the
-    operations the service already offers; each slice adds its own. The design contract lives in `multi-tour-docs`.
+    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.2.1) that the contract gate loads (ADR-004 D7). It keeps
+    only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
+    differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
+    service and tested apart), `Departure` flattened without `actualStart`, `actualEnd`, `mark` and the typed lists, and the
+    error body defined here instead of in `_shared.yaml`. The design contract
+    lives in `multi-tour-docs`. Operations offered: `getHealth`, `scheduleDeparture`.
 paths:
   /health:
     get:
@@ -25,3 +29,170 @@ paths:
                   timestamp:
                     type: string
                     format: date-time
+  /api/v1/operations-cost/departures:
+    post:
+      operationId: scheduleDeparture
+      summary: Schedule a departure of a tour (HU-OPS-001, RF-020, RN-SAL-001)
+      description: |
+        The Tenant Administrator schedules a departure of a tour of the catalog of their tenant; it is created `SCHEDULED` and
+        gets the next code `SAL-NNN` of the tenant. A repeat with the same `Idempotency-Key` answers `200` with the departure
+        already created. **Requires:** `TENANT_ADMINISTRATOR`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleDepartureRequest'
+      responses:
+        '201':
+          description: Scheduled; returns the departure as it is now
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the departure already created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+components:
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+        pattern: '^\S+$'
+  headers:
+    Location:
+      description: Where the created departure can be read
+      schema:
+        type: string
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error, message, traceId]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: object
+        traceId:
+          type: string
+    DepartureStatus:
+      type: string
+      enum: [SCHEDULED, IN_EXECUTION, PENDING_REGULARIZATION, FINISHED, CANCELLED]
+    ScheduleDepartureRequest:
+      type: object
+      required: [serviceId, scheduledStart, scheduledEnd, timeZone]
+      additionalProperties: false
+      properties:
+        serviceId:
+          type: string
+          format: uuid
+        scheduledStart:
+          type: string
+          format: date-time
+        scheduledEnd:
+          type: string
+          format: date-time
+        timeZone:
+          type: string
+          minLength: 1
+          maxLength: 64
+    Departure:
+      type: object
+      required: [code, status, scheduledStart, scheduledEnd, capacity, booked, vehicles, reservations, novelties]
+      properties:
+        code:
+          type: string
+          pattern: '^SAL-[0-9]{3,6}$'
+        status:
+          $ref: '#/components/schemas/DepartureStatus'
+        scheduledStart:
+          type: string
+          format: date-time
+        scheduledEnd:
+          type: string
+          format: date-time
+        capacity:
+          type: integer
+        booked:
+          type: integer
+        vehicles:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+        reservations:
+          type: array
+          maxItems: 100
+          items:
+            type: object
+        novelties:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+  responses:
+    BadRequest:
+      description: Validation error in the data sent
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Token missing or not valid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: The role does not allow this operation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unprocessable:
+      description: A business rule refuses it (BUSINESS_RULE_VIOLATION) or the state does not allow it (INVALID_STATUS_TRANSITION)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Internal error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ServiceUnavailable:
+      description: Another domain that the operation needs to read did not answer; nothing was written
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'

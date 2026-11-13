@@ -49,8 +49,8 @@ public final class ScheduleDeparture {
     UUID tenantId = uuid(command.caller().tenantId());
     UUID account = uuid(command.caller().subject());
     String key = command.idempotencyKey();
-    if (key == null || key.length() < MIN_KEY || key.length() > MAX_KEY) {
-      throw new InvalidDataException("Idempotency-Key", "The Idempotency-Key must have 8 to 128 characters");
+    if (key == null || key.length() < MIN_KEY || key.length() > MAX_KEY || key.chars().anyMatch(Character::isWhitespace)) {
+      throw new InvalidDataException("Idempotency-Key", "The Idempotency-Key must have 8 to 128 characters and no white space");
     }
     String trace = command.correlationId();
     if (trace == null || trace.isBlank() || trace.length() > 128) {
@@ -63,13 +63,16 @@ public final class ScheduleDeparture {
     if (command.serviceId() == null) {
       throw new InvalidDataException("serviceId", "The field serviceId is missing or not valid");
     }
+    Instant now = clock.instant();
+    // everything the request itself can get wrong is judged before another domain is asked anything (plan D-05)
+    Departure.schedule(new UUID(0, 0), tenantId, "SAL-000", command.serviceId(), command.start(), command.end(),
+        command.timeZone(), account, now);
     CatalogTour tour = catalog.tour(command.serviceId())
         .filter(found -> found.type() == CatalogTour.Type.TOUR)
         .orElseThrow(() -> new BusinessRuleViolationException("The tour is not in the catalog of the tenant"));
     if (!tour.active()) {
       throw new BusinessRuleViolationException("The tour is not active in the catalog");
     }
-    Instant now = clock.instant();
     try {
       Departure departure = transaction.run(() -> {
         Departure created = Departure.schedule(ids.next(), tenantId, departures.nextCode(tenantId), tour.serviceId(),
