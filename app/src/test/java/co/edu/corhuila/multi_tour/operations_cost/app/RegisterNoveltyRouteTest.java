@@ -238,7 +238,7 @@ class RegisterNoveltyRouteTest extends ShellTest {
   void C_the_exceptional_reader_of_the_platform_never_gets_the_emergencies() {
     record(R1, 2);
     String exceptional = Tokens.valid(Tokens.claims(ACCOUNT.toString(), 600, List.of("PLATFORM_ADMINISTRATOR"), TENANT.toString())
-        .claim("access", "exceptional").claim("scope", List.of("OPERATIONS")).claim("authorizationId", "auth-1"));
+        .claim("access", "exceptional").claim("scope", List.of("OPERATIONS")).claim("authorizationId", "3f2b8c1e-1111-4222-8333-444455556666"));
     Response read = as(exceptional).filter(Contract.filter()).get(DEPARTURES + "/{code}", "SAL-001");
     assertThat(read.statusCode()).isEqualTo(200);
     assertThat(read.jsonPath().getMap("$")).doesNotContainKey("novelties");

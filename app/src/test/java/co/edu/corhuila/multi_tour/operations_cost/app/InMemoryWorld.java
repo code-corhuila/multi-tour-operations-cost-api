@@ -20,6 +20,7 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.PersonalEmergen
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.PersonalEmergency;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ExtraordinaryCancellations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordExtraordinaryCancellation;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordPersonalEmergency;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.SaveServices;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecord;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecords;
@@ -467,6 +468,12 @@ final class InMemoryWorld
     @Primary
     SaveServices testSaveServices(DepartureViews views, ServicesReader reader) {
       return new SaveServices(WORLD, WORLD, WORLD, WORLD, reader, views, WORLD, Clock.systemUTC());
+    }
+
+    @Bean
+    @Primary
+    RecordPersonalEmergency testRecordPersonalEmergency(DepartureViews views) {
+      return new RecordPersonalEmergency(WORLD, WORLD, WORLD, WORLD, WORLD, views, UUID::randomUUID, WORLD, Clock.systemUTC());
     }
 
     @Bean
