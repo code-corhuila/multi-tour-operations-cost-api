@@ -178,7 +178,7 @@ class JwtFilterTest extends ShellTest {
 
   private static ConfigurableApplicationContext start(Map<String, String> properties) {
     // the blank key comes first so a variable of the machine cannot supply it; later arguments win
-    List<String> args = new ArrayList<>(List.of("--server.port=0", "--JWT_PUBLIC_KEY="));
+    List<String> args = new ArrayList<>(List.of("--server.port=0", "--JWT_PUBLIC_KEY=", "--DATABASE_URL=jdbc:postgresql://localhost:5432/unused"));
     properties.forEach((name, value) -> args.add("--" + name + "=" + value));
     return SpringApplication.run(CompositionRoot.class, args.toArray(String[]::new));
   }
