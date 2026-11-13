@@ -1,0 +1,27 @@
+openapi: 3.0.3
+info:
+  title: Multi Tour — operations-cost (the operations built so far)
+  version: 0.1.0
+  description: |
+    The copy of `07-api/contracts/openapi/operations-cost.yaml` that the contract gate loads (ADR-004 D7). It keeps only the
+    operations the service already offers; each slice adds its own. The design contract lives in `multi-tour-docs`.
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Liveness, without a token
+      responses:
+        '200':
+          description: The service is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, timestamp]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  timestamp:
+                    type: string
+                    format: date-time
