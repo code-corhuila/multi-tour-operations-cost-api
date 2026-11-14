@@ -139,6 +139,18 @@ public final class JdbcVehicles implements Vehicles {
     }
   }
 
+  @Override
+  public void unassign(UUID tenantId, UUID departureId, Collection<UUID> vehicleIds) {
+    if (vehicleIds.isEmpty()) {
+      return;
+    }
+    jdbc.sql("DELETE FROM salida_vehicle WHERE tenant_id = :tenant AND salida_id = :departure AND vehicle_id IN (:ids)")
+        .param("tenant", tenantId)
+        .param("departure", departureId)
+        .param("ids", vehicleIds)
+        .update();
+  }
+
   private static OffsetDateTime utc(Instant instant) {
     return OffsetDateTime.ofInstant(instant, ZoneOffset.UTC);
   }

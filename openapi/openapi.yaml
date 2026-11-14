@@ -1,14 +1,14 @@
 openapi: 3.0.3
 info:
   title: Multi Tour — operations-cost (the operations built so far)
-  version: 0.8.0
+  version: 0.9.0
   description: |
-    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.8.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
+    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.9.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
     only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
     differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
     service and tested apart), `Departure` flattened without `mark` and the typed lists, and the
     error body, the paging parameters and the paging meta defined here instead of in `_shared.yaml`; in `rescheduleDeparture` the tags and the extensions `x-hu` and `x-permission` are left out. Since 0.5.0 (HU-OPS-003 part A) `booked` of the list, of the reading and of the start and the end is the seats held that commercial-reservation keeps; the answers of scheduling, rescheduling and adding vehicles still answer 0. The mark of pending regularization is the field `pendingRegularization`, always `false` until part B. The design contract
-    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Since 0.8.0 (HU-OPS-007) it adds `recordCost` and `listCosts`. Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
+    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Since 0.8.0 (HU-OPS-007) it adds `recordCost` and `listCosts`. Since 0.9.0 (HU-OPS-002 part B) it adds the two internal routes of the saga, `previewVehicleChange` and `replaceDepartureVehicles`. Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `previewVehicleChange`, `replaceDepartureVehicles`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
 paths:
   /health:
     get:
@@ -709,6 +709,100 @@ paths:
         '500':
           $ref: '#/components/responses/InternalError'
 
+  /api/v1/operations-cost/internal/tenants/{tenantId}/departures/{departureCode}/vehicle-changes/preview:
+    post:
+      tags: [Internal]
+      operationId: previewVehicleChange
+      summary: Preview the capacity a new set of vehicles would give (HU-OPS-002 part B, saga step 0)
+      description: |
+        Answers the effective capacity of the departure today and the one the whole new set would give, and changes nothing. The
+        capacity is the lower of the capacity of the tour and the total of the vehicles when the tour requires transport (RN-SAL-001).
+        The same refusals as `replaceDepartureVehicles` are answered here, so the saga learns them before it touches anything:
+        `422 INVALID_STATUS_TRANSITION` when the departure is not `SCHEDULED`; `422 BUSINESS_RULE_VIOLATION` for an unknown vehicle, a vehicle
+        on another departure whose interval overlaps, or a tour that does not require transport. A departure of another tenant is `404`.
+        The catalog of the tour is read from `commercial-reservation` with the credential of the caller, so it is `503` when it cannot be read
+        (this needs that service to admit the `SERVICE` role on `getCatalogService`, gap G-API8-1). **Requires:** `SERVICE` role.
+      x-hu: HU-OPS-002
+      x-permission: SERVICE
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+        - $ref: '#/components/parameters/DepartureCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplaceDepartureVehiclesRequest'
+            example:
+              vehicleIds: [550e8400-e29b-41d4-a716-446655440010]
+      responses:
+        '200':
+          description: The capacity today and with the new set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleChangePreview'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/operations-cost/internal/tenants/{tenantId}/departures/{departureCode}/vehicles:
+    put:
+      tags: [Internal]
+      operationId: replaceDepartureVehicles
+      summary: Put the whole new set of vehicles on a scheduled departure (HU-OPS-002 part B, saga step 2)
+      description: |
+        Replaces the vehicles of a `SCHEDULED` departure with exactly the set sent: vehicles absent from it are taken off and new ones
+        are put on. The new total goes to `commercial-reservation` through `SalidaVehiclesChanged`, written in the same transaction as
+        the change. The same set sent again (the same `Idempotency-Key`, or a departure that already has that set) answers `200` with the
+        same departure and writes nothing. Refusals, all with nothing changed: `422 INVALID_STATUS_TRANSITION` when the departure is not
+        `SCHEDULED`; `422 BUSINESS_RULE_VIOLATION` for an unknown vehicle, an overlap with another departure, or a tour that does not
+        require transport; `404` for a departure of another tenant. **Requires:** `SERVICE` role.
+      x-hu: HU-OPS-002
+      x-permission: SERVICE
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+        - $ref: '#/components/parameters/DepartureCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplaceDepartureVehiclesRequest'
+      responses:
+        '200':
+          description: The departure with its vehicles and its effective capacity, now
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   /api/v1/operations-cost/internal/outbox/{eventId}/published:
     parameters:
       - $ref: '#/components/parameters/EventIdPath'
@@ -765,6 +859,13 @@ paths:
           $ref: '#/components/responses/InternalError'
 components:
   parameters:
+    TenantIdPath:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     EventIdPath:
       name: eventId
       in: path
@@ -933,6 +1034,34 @@ components:
           type: integer
           minimum: 1
           maximum: 100
+    ReplaceDepartureVehiclesRequest:
+      type: object
+      required: [vehicleIds]
+      additionalProperties: false
+      properties:
+        vehicleIds:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          description: The whole new set of vehicles of the departure, not the difference
+          items:
+            type: string
+            format: uuid
+    VehicleChangePreview:
+      type: object
+      required: [departureId, currentEffectiveCapacity, newEffectiveCapacity]
+      additionalProperties: false
+      properties:
+        departureId:
+          type: string
+          format: uuid
+        currentEffectiveCapacity:
+          type: integer
+          minimum: 0
+        newEffectiveCapacity:
+          type: integer
+          minimum: 0
     AddDepartureVehiclesRequest:
       type: object
       required: [vehicleIds]
