@@ -93,6 +93,13 @@ public record Departure(
     return changed;
   }
 
+  /** An operational cost is recorded once the execution started: while it runs or after it ended (RN-OPS-API-70). */
+  public void acceptCosts() {
+    if (status != DepartureStatus.IN_EXECUTION && status != DepartureStatus.FINISHED) {
+      throw new InvalidStatusTransitionException(status, "have an operational cost recorded");
+    }
+  }
+
   /** What was delivered to the reservations is recorded only while the departure runs (RN-OPS-API-60). */
   public void acceptServices() {
     if (status != DepartureStatus.IN_EXECUTION) {
