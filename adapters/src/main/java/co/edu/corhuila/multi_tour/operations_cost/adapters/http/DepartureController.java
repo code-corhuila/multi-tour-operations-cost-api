@@ -8,6 +8,8 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureStatus
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureView;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.FinishDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.GetDeparture;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ExtraordinaryCancellation;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordExtraordinaryCancellation;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.SaveServices;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecord;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceResult;
@@ -97,14 +99,24 @@ class DepartureController {
   /** A reservation of the departure as its owner says it, with what was recorded for it once it exists. */
   @JsonInclude(JsonInclude.Include.NON_NULL)
   record ReservationResponse(
-      UUID reservationId, String customer, int travelers, String state, String result, Integer travelersServed, Boolean noShow, String cause) {
+      UUID reservationId, String customer, int travelers, String state, String result, Integer travelersServed, Boolean noShow, String cause,
+      CancellationResponse extraordinaryCancellation) {
 
     static ReservationResponse of(ServicesView.ReservationView view) {
       var reservation = view.reservation();
       var recorded = view.recorded();
       return new ReservationResponse(reservation.reservationId(), reservation.customer(), reservation.travelers(), reservation.state().name(),
           recorded.map(r -> r.result().name()).orElse(null), recorded.map(ServiceRecord::travelersServed).orElse(null),
-          recorded.map(ServiceRecord::noShow).orElse(null), recorded.map(ServiceRecord::cause).orElse(null));
+          recorded.map(ServiceRecord::noShow).orElse(null), recorded.map(ServiceRecord::cause).orElse(null),
+          view.cancellation().map(CancellationResponse::of).orElse(null));
+    }
+  }
+
+  /** The extraordinary cancellation of a reservation: why, by whom and when (HU-OPS-005). */
+  record CancellationResponse(String justification, UUID recordedBy, Instant recordedAt) {
+
+    static CancellationResponse of(ExtraordinaryCancellation cancellation) {
+      return new CancellationResponse(cancellation.justification(), cancellation.recordedBy(), cancellation.recordedAt());
     }
   }
 
@@ -132,6 +144,9 @@ class DepartureController {
   /** The body of {@code saveServices}: one entry per reservation; what the entry means is judged by the core. */
   record SaveServicesRequest(List<ServiceEntryRequest> services) {}
 
+  /** The body of {@code recordExtraordinaryCancellation}; whether the text is a justification is judged by the core. */
+  record ExtraordinaryCancellationRequest(String justification) {}
+
   record ServiceEntryRequest(UUID reservationId, String result, Integer travelersServed, Boolean noShow, String cause) {}
 
   /** The body of {@code addDepartureVehicles}. */
@@ -150,12 +165,13 @@ class DepartureController {
   private final FinishDeparture finishDeparture;
   private final RegularizeDeparture regularizeDeparture;
   private final SaveServices saveServices;
+  private final RecordExtraordinaryCancellation recordCancellation;
   private final Clock clock;
 
   DepartureController(
       ScheduleDeparture scheduleDeparture, RescheduleDeparture rescheduleDeparture, AddDepartureVehicles addDepartureVehicles,
       ListDepartures listDepartures, GetDeparture getDeparture, StartDeparture startDeparture, FinishDeparture finishDeparture,
-      RegularizeDeparture regularizeDeparture, SaveServices saveServices, Clock clock) {
+      RegularizeDeparture regularizeDeparture, SaveServices saveServices, RecordExtraordinaryCancellation recordCancellation, Clock clock) {
     this.scheduleDeparture = scheduleDeparture;
     this.rescheduleDeparture = rescheduleDeparture;
     this.addDepartureVehicles = addDepartureVehicles;
@@ -165,6 +181,7 @@ class DepartureController {
     this.finishDeparture = finishDeparture;
     this.regularizeDeparture = regularizeDeparture;
     this.saveServices = saveServices;
+    this.recordCancellation = recordCancellation;
     this.clock = clock;
   }
 
@@ -205,6 +222,20 @@ class DepartureController {
     DepartureResponse response = DepartureResponse.of(saved.view(), saved.services(), clock.instant());
     return saved.recorded()
         ? ResponseEntity.status(HttpStatus.CREATED).location(URI.create(DEPARTURES + "/" + saved.view().departure().code())).body(response)
+        : ResponseEntity.ok(response);
+  }
+
+  @PostMapping(path = "/departures/{departureCode}/reservations/{reservationId}/extraordinary-cancellation", consumes = "application/json")
+  ResponseEntity<DepartureResponse> recordExtraordinaryCancellation(
+      HttpServletRequest request, @PathVariable String departureCode, @PathVariable String reservationId,
+      @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey, @RequestBody ExtraordinaryCancellationRequest body) {
+    requireCode(departureCode);
+    Caller caller = (Caller) request.getAttribute(JwtAuthFilter.CALLER);
+    RecordExtraordinaryCancellation.Recorded recorded = recordCancellation.execute(
+        new RecordExtraordinaryCancellation.Command(caller, departureCode, reservationId, idempotencyKey, body.justification(), MDC.get("traceId")));
+    DepartureResponse response = DepartureResponse.of(recorded.view(), recorded.services(), clock.instant());
+    return recorded.recorded()
+        ? ResponseEntity.status(HttpStatus.CREATED).location(URI.create(DEPARTURES + "/" + recorded.view().departure().code())).body(response)
         : ResponseEntity.ok(response);
   }
 

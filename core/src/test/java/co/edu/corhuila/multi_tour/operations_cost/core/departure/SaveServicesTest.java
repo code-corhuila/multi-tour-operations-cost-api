@@ -41,7 +41,7 @@ class SaveServicesTest {
     world = new FakeWorld();
     world.tours.put(TOUR, new CatalogTour(TOUR, CatalogTour.Type.TOUR, true, 18, false));
     DepartureViews views = new DepartureViews(world, world, world);
-    save = new SaveServices(world, world, world, new ServicesReader(world, world), views, world, Clock.fixed(NOW, ZoneOffset.UTC));
+    save = new SaveServices(world, world, world, world, new ServicesReader(world, world, world), views, world, Clock.fixed(NOW, ZoneOffset.UTC));
     running = departure(1, DepartureStatus.SCHEDULED).start(START.plus(Duration.ofMinutes(5)), ACCOUNT, NOW);
     world.departures.put(running.id(), running);
     world.reservationRows.put(running.id(), List.of(
@@ -97,6 +97,15 @@ class SaveServicesTest {
   void A_reservation_not_in_execution_is_refused() {
     assertThatThrownBy(() -> save.execute(command("SAL-001", KEY, delivered(R3, 1, "x")))).isInstanceOf(BusinessRuleViolationException.class);
     assertThat(world.serviceRows).isEmpty();
+  }
+
+  @Test
+  void A_services_of_a_cancelled_reservation_are_refused() {
+    world.cancellationRows.put(running.id(), java.util.Map.of(R1, new ExtraordinaryCancellation(R1, "an emergency", ACCOUNT, NOW)));
+    assertThatThrownBy(() -> save.execute(command("SAL-001", KEY, delivered(R2, 1, "x"), delivered(R1, 4, null))))
+        .isInstanceOf(BusinessRuleViolationException.class);
+    assertThat(world.serviceRows).isEmpty();
+    assertThat(world.keys).isEmpty();
   }
 
   @Test

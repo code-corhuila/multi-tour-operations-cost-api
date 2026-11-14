@@ -38,7 +38,7 @@ class ReadDeparturesTest {
     world.tours.put(OTHER_TOUR, new CatalogTour(OTHER_TOUR, CatalogTour.Type.TOUR, true, 6, false));
     DepartureViews views = new DepartureViews(world, world, world);
     list = new ListDepartures(world, views);
-    get = new GetDeparture(world, views, new ServicesReader(world, world));
+    get = new GetDeparture(world, views, new ServicesReader(world, world, world));
   }
 
   private Departure put(int n, UUID tour, DepartureStatus status, UUID tenant, int daysFromNow) {

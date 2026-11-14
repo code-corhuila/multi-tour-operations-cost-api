@@ -14,6 +14,9 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDepartu
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.OutboxEvent;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ReservationOfDeparture;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ExtraordinaryCancellation;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ExtraordinaryCancellations;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordExtraordinaryCancellation;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.SaveServices;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecord;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecords;
@@ -65,7 +68,7 @@ import org.springframework.context.annotation.Primary;
  * on its own: how the real adapters behave is the business of their own tests (the database, the catalog).
  */
 final class InMemoryWorld
-    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, Vehicles, VehicleKeys, ServiceRecords, OperationalCosts {
+    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, Vehicles, VehicleKeys, ServiceRecords, OperationalCosts, ExtraordinaryCancellations {
 
   /** One for the whole test run: the beans of the configuration below are this one. */
   static final InMemoryWorld WORLD = new InMemoryWorld();
@@ -80,6 +83,7 @@ final class InMemoryWorld
   final Map<String, UUID> vehicleKeys = new HashMap<>();
   final Map<UUID, List<ReservationOfDeparture>> reservationRows = new HashMap<>();
   final Map<UUID, Map<UUID, ServiceRecord>> serviceRows = new HashMap<>();
+  final Map<UUID, Map<UUID, ExtraordinaryCancellation>> cancellationRows = new HashMap<>();
   final List<OperationalCost> costRows = new ArrayList<>();
   final Map<String, OperationalCost> costKeys = new HashMap<>();
   volatile boolean reservationsDown;
@@ -98,6 +102,7 @@ final class InMemoryWorld
       vehicleKeys.clear();
       reservationRows.clear();
       serviceRows.clear();
+      cancellationRows.clear();
       costRows.clear();
       costKeys.clear();
       tours.clear();
@@ -227,6 +232,21 @@ final class InMemoryWorld
   public void saveAll(UUID tenantId, UUID departureId, Collection<ServiceRecord> records, UUID by, Instant at) {
     Map<UUID, ServiceRecord> rows = serviceRows.computeIfAbsent(departureId, id -> new LinkedHashMap<>());
     records.forEach(record -> rows.put(record.reservationId(), record));
+  }
+
+  @Override
+  public void add(UUID tenantId, UUID departureId, ExtraordinaryCancellation cancellation) {
+    cancellationRows.computeIfAbsent(departureId, id -> new LinkedHashMap<>()).put(cancellation.reservationId(), cancellation);
+  }
+
+  @Override
+  public boolean exists(UUID tenantId, UUID departureId, UUID reservationId) {
+    return cancellationRows.getOrDefault(departureId, Map.of()).containsKey(reservationId);
+  }
+
+  @Override
+  public List<ExtraordinaryCancellation> cancellationsOf(UUID tenantId, UUID departureId) {
+    return List.copyOf(cancellationRows.getOrDefault(departureId, Map.of()).values());
   }
 
   @Override
@@ -402,7 +422,7 @@ final class InMemoryWorld
     @Bean
     @Primary
     ServicesReader testServicesReader() {
-      return new ServicesReader(WORLD, WORLD);
+      return new ServicesReader(WORLD, WORLD, WORLD);
     }
 
     @Bean
@@ -426,7 +446,13 @@ final class InMemoryWorld
     @Bean
     @Primary
     SaveServices testSaveServices(DepartureViews views, ServicesReader reader) {
-      return new SaveServices(WORLD, WORLD, WORLD, reader, views, WORLD, Clock.systemUTC());
+      return new SaveServices(WORLD, WORLD, WORLD, WORLD, reader, views, WORLD, Clock.systemUTC());
+    }
+
+    @Bean
+    @Primary
+    RecordExtraordinaryCancellation testRecordExtraordinaryCancellation(DepartureViews views, ServicesReader reader) {
+      return new RecordExtraordinaryCancellation(WORLD, WORLD, WORLD, WORLD, reader, views, UUID::randomUUID, WORLD, Clock.systemUTC());
     }
 
     @Bean
