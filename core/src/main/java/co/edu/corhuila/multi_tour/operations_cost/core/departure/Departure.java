@@ -37,7 +37,11 @@ public record Departure(
     this(id, tenantId, code, serviceId, start, estimatedEnd, timeZone, status, scheduledBy, scheduledAt, DepartureExecution.NONE);
   }
 
-  /** Every way of building a departure, the reading of a stored one included, checks what the engine also checks. */
+  /**
+   * Every way of building a departure, the reading of a stored one included, checks the fields it holds. That the execution agrees with
+   * the state (a start for a departure that ran, an end for a finished one, an interruption only with its cause) is kept by the engine
+   * (the checks of the migration of HU-OPS-003) and by {@code start} and {@code finish}, which only build coherent ones.
+   */
   public Departure {
     // the database keeps microseconds: what is answered the first time is what is read back later
     start = start == null ? null : start.truncatedTo(ChronoUnit.MICROS);

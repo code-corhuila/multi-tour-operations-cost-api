@@ -1,7 +1,6 @@
 package co.edu.corhuila.multi_tour.operations_cost.core.departure;
 
 import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.Vehicle;
-import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.VehicleCapacity;
 import java.util.List;
 import java.util.Optional;
 
@@ -13,10 +12,7 @@ import java.util.Optional;
 public record DepartureReads(Optional<CatalogTour> tour, Optional<Reservations.Seats> seats, List<Vehicle> vehicles) {
 
   public DepartureView view(Departure departure) {
-    int tourCapacity = tour.map(CatalogTour::capacity).orElse(0);
-    boolean transportRequired = tour.map(CatalogTour::transportRequired).orElse(false);
-    int vehicleCapacity = VehicleCapacity.total(vehicles);
-    return new DepartureView(departure, VehicleCapacity.effective(tourCapacity, transportRequired, vehicleCapacity), tourCapacity,
-        vehicleCapacity, transportRequired, seats.map(Reservations.Seats::held).orElse(0), vehicles);
+    return DepartureView.of(departure, tour.map(CatalogTour::capacity).orElse(0), tour.map(CatalogTour::transportRequired).orElse(false),
+        seats.map(Reservations.Seats::held).orElse(0), vehicles);
   }
 }
