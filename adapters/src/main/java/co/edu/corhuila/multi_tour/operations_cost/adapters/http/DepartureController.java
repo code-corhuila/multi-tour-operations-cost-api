@@ -66,7 +66,7 @@ class DepartureController {
    */
   @JsonInclude(JsonInclude.Include.NON_NULL)
   record DepartureResponse(
-      String code, UUID serviceId, String status, Instant scheduledStart, Instant scheduledEnd, int capacity, int booked, int tourCapacity,
+      String code, UUID serviceId, String status, Instant scheduledStart, Instant scheduledEnd, String timeZone, int capacity, int booked, int tourCapacity,
       int vehicleCapacity, boolean transportRequired, boolean pendingRegularization, boolean startAlert, Instant actualStart, Instant actualEnd,
       boolean interrupted, String interruptionCause, List<VehicleResponse> vehicles, Integer travelersServed,
       List<ReservationResponse> reservations, DepartureCancellationResponse cancellation, List<NoveltyResponse> novelties) {
@@ -81,7 +81,7 @@ class DepartureController {
       Departure departure = view.departure();
       DepartureExecution run = departure.execution();
       return new DepartureResponse(departure.code(), departure.serviceId(), departure.status().name(), departure.start(), departure.estimatedEnd(),
-          view.capacity(), view.booked(), view.tourCapacity(), view.vehicleCapacity(), view.transportRequired(),
+          departure.timeZone(), view.capacity(), view.booked(), view.tourCapacity(), view.vehicleCapacity(), view.transportRequired(),
           run.pendingRegularization(), departure.startAlert(now), run.actualStart(), run.actualEnd(), run.interrupted(), run.interruptionCause(),
           view.vehicles().stream().map(VehicleResponse::of).toList(), null, null, DepartureCancellationResponse.of(run.cancellation()), null);
     }
@@ -92,7 +92,7 @@ class DepartureController {
       if (services.isEmpty()) {
         return plain;
       }
-      return new DepartureResponse(plain.code(), plain.serviceId(), plain.status(), plain.scheduledStart(), plain.scheduledEnd(), plain.capacity(),
+      return new DepartureResponse(plain.code(), plain.serviceId(), plain.status(), plain.scheduledStart(), plain.scheduledEnd(), plain.timeZone(), plain.capacity(),
           plain.booked(), plain.tourCapacity(), plain.vehicleCapacity(), plain.transportRequired(), plain.pendingRegularization(), plain.startAlert(),
           plain.actualStart(), plain.actualEnd(), plain.interrupted(), plain.interruptionCause(), plain.vehicles(), services.get().travelersServed(),
           services.get().reservations().stream().map(ReservationResponse::of).toList(), plain.cancellation(), plain.novelties());
@@ -100,7 +100,7 @@ class DepartureController {
 
     /** The same, with the personal emergencies of the departure: the list is empty, not absent, once the service answers them. */
     DepartureResponse withNovelties(List<PersonalEmergency> emergencies) {
-      return new DepartureResponse(code, serviceId, status, scheduledStart, scheduledEnd, capacity, booked, tourCapacity, vehicleCapacity, transportRequired,
+      return new DepartureResponse(code, serviceId, status, scheduledStart, scheduledEnd, timeZone, capacity, booked, tourCapacity, vehicleCapacity, transportRequired,
           pendingRegularization, startAlert, actualStart, actualEnd, interrupted, interruptionCause, vehicles, travelersServed, reservations, cancellation,
           emergencies.stream().map(NoveltyResponse::of).toList());
     }
