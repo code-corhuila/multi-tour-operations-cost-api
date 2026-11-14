@@ -260,6 +260,58 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/departures/{departureCode}/regularization:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    post:
+      operationId: regularizeDeparture
+      summary: Regularize a departure past its estimated end that never started (HU-OPS-003 part B)
+      description: |
+        Only a `SCHEDULED` departure with `pendingRegularization` true (another state is `422 INVALID_STATUS_TRANSITION`; a marked
+        `IN_EXECUTION` one is closed with `finishDeparture`). `EXECUTED` and `INTERRUPTED` need `actualStart` and `actualEnd`;
+        `INTERRUPTED` also needs `interruption`; a start earlier than scheduled needs `earlyStartReason` and a reason with a later
+        start is `400`. A start later than now, or an end before the start or later than now, is `422 BUSINESS_RULE_VIOLATION`, and so
+        is `NOT_CARRIED_OUT` until HU-OPS-006. Writes `SalidaExecutionStarted` and `SalidaFinalized`. A repeat with the same
+        `Idempotency-Key` answers `200`. **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegularizeRequest'
+      responses:
+        '201':
+          description: Recorded; returns the departure as it is now
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the departure already recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
   /api/v1/operations-cost/departures/{departureCode}/schedule:
     parameters:
       - $ref: '#/components/parameters/DepartureCode'
@@ -846,6 +898,32 @@ components:
         startedAt:
           type: string
           format: date-time
+    RegularizeRequest:
+      type: object
+      additionalProperties: false
+      required: [result, actualStart]
+      properties:
+        result:
+          type: string
+          enum: [EXECUTED, INTERRUPTED, NOT_CARRIED_OUT]
+          description: '`NOT_CARRIED_OUT` is refused until HU-OPS-006'
+        actualStart:
+          type: string
+          format: date-time
+        actualEnd:
+          type: string
+          format: date-time
+          description: Required for `EXECUTED` and `INTERRUPTED`
+        earlyStartReason:
+          type: string
+          maxLength: 500
+        interruption:
+          type: string
+          maxLength: 1000
+          description: Required for `INTERRUPTED`, and not allowed for `EXECUTED`
+        notCarriedOutCause:
+          type: string
+          maxLength: 500
     FinishRequest:
       type: object
       additionalProperties: false
