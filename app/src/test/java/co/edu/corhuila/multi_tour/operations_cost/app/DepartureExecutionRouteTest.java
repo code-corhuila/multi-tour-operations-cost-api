@@ -53,8 +53,12 @@ class DepartureExecutionRouteTest extends ShellTest {
   }
 
   private Departure departure(int n, Instant start, DepartureStatus status, UUID tenant) {
+    return departure(n, start, status, tenant, "America/Bogota");
+  }
+
+  private Departure departure(int n, Instant start, DepartureStatus status, UUID tenant, String timeZone) {
     Departure created = new Departure(new UUID(0, 1000 + n), tenant, String.format("SAL-%03d", n), TOUR, start, start.plus(Duration.ofHours(8)),
-        "America/Bogota", status, ACCOUNT, start.minus(Duration.ofDays(3)));
+        timeZone, status, ACCOUNT, start.minus(Duration.ofDays(3)));
     world.departures.put(created.id(), created);
     return created;
   }
@@ -185,6 +189,23 @@ class DepartureExecutionRouteTest extends ShellTest {
     assertThat(response.jsonPath().getInt("booked")).isEqualTo(5);
     assertThat(response.jsonPath().getList("vehicles.name")).containsExactly("Van");
     assertThat(response.jsonPath().getString("actualStart")).isNull();
+  }
+
+  @Test
+  void C_a_departure_answers_the_zone_it_was_scheduled_with() {
+    departure(2, START.plus(Duration.ofDays(1)), DepartureStatus.SCHEDULED, TENANT, "America/Lima");
+    Response response = as(administrator()).filter(Contract.filter()).get(DEPARTURES + "/{code}", "SAL-002");
+    assertThat(response.statusCode()).isEqualTo(200);
+    assertThat(response.jsonPath().getString("timeZone")).isEqualTo("America/Lima");
+  }
+
+  @Test
+  void C_the_list_answers_the_zone_of_each_departure() {
+    departure(2, START.plus(Duration.ofDays(1)), DepartureStatus.SCHEDULED, TENANT, "America/Lima");
+    Response response = as(administrator()).filter(Contract.filter()).get(DEPARTURES);
+    assertThat(response.statusCode()).isEqualTo(200);
+    assertThat(response.jsonPath().getList("data.code")).containsExactly("SAL-002", "SAL-001");
+    assertThat(response.jsonPath().getList("data.timeZone")).containsExactly("America/Lima", "America/Bogota");
   }
 
   @Test
