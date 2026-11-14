@@ -1,14 +1,14 @@
 openapi: 3.0.3
 info:
   title: Multi Tour — operations-cost (the operations built so far)
-  version: 0.13.0
+  version: 0.14.0
   description: |
-    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.13.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
+    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.14.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
     only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
     differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
     service and tested apart), `Departure` flattened without `mark` and the typed lists, and the
     error body, the paging parameters and the paging meta defined here instead of in `_shared.yaml`; in `rescheduleDeparture` and `recordExtraordinaryCancellation` the tags and the extensions `x-hu` and `x-permission` are left out. Since 0.5.0 (HU-OPS-003 part A) `booked` of the list, of the reading and of the start and the end is the seats held that commercial-reservation keeps; the answers of scheduling, rescheduling and adding vehicles still answer 0. The mark of pending regularization is the field `pendingRegularization`, always `false` until part B. The design contract
-    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Since 0.8.0 (HU-OPS-007) it adds `recordCost` and `listCosts`. Since 0.9.0 (HU-OPS-002 part B) it adds the two internal routes of the saga, `previewVehicleChange` and `replaceDepartureVehicles`. Since 0.10.0 (HU-OPS-005) it adds `recordExtraordinaryCancellation` and the cancellation of each reservation in `getDeparture`. Since 0.11.0 (HU-OPS-006) it adds the internal route `cancelDeparture`, the result `NOT_CARRIED_OUT` of `regularizeDeparture` and the `cancellation` of a departure. Since 0.12.0 (HU-OPS-008) it adds `registerNovelty`, offered only for the type `PERSONAL_EMERGENCY`, and the `novelties` of a departure. Since 0.13.0 (HU-IDA-004) every `Departure` answers its `timeZone`, the zone it keeps since it was scheduled. In this copy `RegisterNoveltyRequest` requires `affected`, which the design contract does not: only the personal emergency is offered, and the copy goes back to the design contract when the ordinary novelty is offered. The `novelties` are not answered to the exceptional access of the platform: the detail of an emergency can name health facts. Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `previewVehicleChange`, `replaceDepartureVehicles`, `cancelDeparture`, `recordExtraordinaryCancellation`, `registerNovelty`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
+    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Since 0.8.0 (HU-OPS-007) it adds `recordCost` and `listCosts`. Since 0.9.0 (HU-OPS-002 part B) it adds the two internal routes of the saga, `previewVehicleChange` and `replaceDepartureVehicles`. Since 0.10.0 (HU-OPS-005) it adds `recordExtraordinaryCancellation` and the cancellation of each reservation in `getDeparture`. Since 0.11.0 (HU-OPS-006) it adds the internal route `cancelDeparture`, the result `NOT_CARRIED_OUT` of `regularizeDeparture` and the `cancellation` of a departure. Since 0.12.0 (HU-OPS-008) it adds `registerNovelty`, offered only for the type `PERSONAL_EMERGENCY`, and the `novelties` of a departure. Since 0.13.0 (HU-IDA-004) every `Departure` answers its `timeZone`, the zone it keeps since it was scheduled. In this copy `RegisterNoveltyRequest` requires `affected`, which the design contract does not: only the personal emergency is offered, and the copy goes back to the design contract when the ordinary novelty is offered. The `novelties` are not answered to the exceptional access of the platform: the detail of an emergency can name health facts. Since 0.14.0 (HU-SEC-005, api spec 013) it adds the internal route `receivePlatformEvent`, where job 7 delivers `AccountSessionsRevoked`; `PlatformEventEnvelope` keeps its UUIDs and instants inline and says `additionalProperties: true` in the envelope and its payload, which the design contract leaves implicit (the same tolerance). Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `previewVehicleChange`, `replaceDepartureVehicles`, `cancelDeparture`, `recordExtraordinaryCancellation`, `registerNovelty`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`, `receivePlatformEvent`.
 paths:
   /health:
     get:
@@ -714,6 +714,46 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/internal/events:
+    post:
+      tags: [Internal]
+      operationId: receivePlatformEvent
+      summary: Receive the revocation of the sessions of an account
+      description: |
+        Where job 7 delivers `AccountSessionsRevoked` (ADR-004 D4, D5). No tenant in the path: the account of a Platform Administrator
+        has none. The service keeps the cutoff `payload.revokedFrom`, which never moves back, and answers `401` to a token of that
+        account whose `iat` (in whole seconds) is earlier than it, on every route that asks for a token; if the cutoff cannot be read
+        the answer is `503`, never a pass. The `Idempotency-Key` is the id of the event: the first delivery answers `201`; a repeat of
+        the id, or an instant not later than the cutoff kept, answers `200` and changes nothing. `aggregateId` must be
+        `payload.accountId`. **Requires:** `SERVICE` role (a person's token gets `403`); never routed by the gateway. The body is
+        tolerant of fields it does not name, up to 16 KB.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformEventEnvelope'
+      responses:
+        '201':
+          description: The cutoff was kept or moved forward
+        '200':
+          description: The event changed nothing, because it was already received or its instant is not later than the cutoff kept
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: The body is larger than 16 KB
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
   /api/v1/operations-cost/internal/outbox:
     get:
       operationId: listOutboxEvents
@@ -1114,6 +1154,41 @@ components:
           type: string
           nullable: true
         nextAttemptAt:
+          type: string
+          format: date-time
+    PlatformEventEnvelope:
+      type: object
+      additionalProperties: true
+      description: The envelope of ADR-004 D4 for the events with no tenant in the path; fields it does not name are tolerated. Today only `AccountSessionsRevoked`.
+      required: [eventId, eventType, eventVersion, aggregateId, payload, occurredAt]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+          enum: [AccountSessionsRevoked]
+        eventVersion:
+          type: integer
+          minimum: 1
+        aggregateId:
+          type: string
+          format: uuid
+        payload:
+          type: object
+          required: [accountId, revokedFrom]
+          additionalProperties: true
+          properties:
+            accountId:
+              type: string
+              format: uuid
+            revokedFrom:
+              type: string
+              format: date-time
+            tenantId:
+              type: string
+              format: uuid
+        occurredAt:
           type: string
           format: date-time
     OutboxAttemptRequest:
