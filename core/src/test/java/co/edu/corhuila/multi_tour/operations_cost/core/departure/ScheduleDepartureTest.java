@@ -216,7 +216,7 @@ class ScheduleDepartureTest {
 
   @Test
   void A_a_key_that_points_to_a_missing_departure_is_a_failure_and_not_a_new_departure() {
-    world.keys.put(TENANT + "/" + KEY, new UUID(9, 9));
+    world.keys.put(TENANT + "/scheduleDeparture/" + KEY, new UUID(9, 9));
     assertThatThrownBy(() -> schedule.execute(command())).isInstanceOf(IllegalStateException.class);
     assertThat(world.departures).isEmpty();
   }
