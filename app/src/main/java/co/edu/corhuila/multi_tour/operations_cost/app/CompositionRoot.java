@@ -2,6 +2,7 @@ package co.edu.corhuila.multi_tour.operations_cost.app;
 
 import co.edu.corhuila.multi_tour.operations_cost.adapters.catalog.HttpCatalog;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.catalog.HttpReservations;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcAccountSessionCutoffs;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcDepartureRepository;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcIdempotencyKeys;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutbox;
@@ -9,6 +10,7 @@ import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOpera
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutboxEvents;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcExtraordinaryCancellations;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcPersonalEmergencies;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcProcessedEvents;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcServiceRecords;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcTransaction;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicleKeys;
@@ -26,7 +28,10 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.Catalog;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureRepository;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.security.OutboxExceptionalAccessAudit;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdGenerator;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.AccountSessionCutoffs;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.ApplyAccountSessionsRevoked;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.ExceptionalAccessAudit;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.ProcessedEvents;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdempotencyKeys;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.MarkPendingRegularization;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
@@ -114,6 +119,22 @@ class CompositionRoot {
   @Bean
   ExceptionalAccessAudit exceptionalAccessAudit(Outbox outbox, IdGenerator ids, Clock clock) {
     return new OutboxExceptionalAccessAudit(outbox, ids, clock);
+  }
+
+  @Bean
+  AccountSessionCutoffs accountSessionCutoffs(JdbcClient jdbc) {
+    return new JdbcAccountSessionCutoffs(jdbc);
+  }
+
+  @Bean
+  ProcessedEvents processedEvents(JdbcClient jdbc) {
+    return new JdbcProcessedEvents(jdbc);
+  }
+
+  /** The cutoff and the processed event commit together (RN-OPS-API-130): the adapters and the transaction share the data source. */
+  @Bean
+  ApplyAccountSessionsRevoked applyAccountSessionsRevoked(AccountSessionCutoffs cutoffs, ProcessedEvents processed, Transaction transaction) {
+    return new ApplyAccountSessionsRevoked(cutoffs, processed, transaction);
   }
 
   @Bean
