@@ -8,6 +8,10 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureStatus
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureView;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.FinishDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.GetDeparture;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.SaveServices;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecord;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceResult;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServicesView;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.InvalidDataException;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ListDepartures;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RegularizeDeparture;
@@ -52,13 +56,15 @@ class DepartureController {
   /**
    * The {@code Departure} of the contract. {@code capacity} is the effective one: the capacity of the tour, or the lower of it and
    * the total of the vehicles when the tour requires transport (HU-OPS-002). What a person recorded (the real times, the
-   * interruption) is present only once it exists. Its reservations and novelties come with HU-OPS-004 and are not answered.
+   * interruption) is present only once it exists. The reservations and the real base are answered by the reading and by saving the
+   * services, and only when their owner could be read; the novelties come with HU-OPS-008.
    */
   @JsonInclude(JsonInclude.Include.NON_NULL)
   record DepartureResponse(
       String code, UUID serviceId, String status, Instant scheduledStart, Instant scheduledEnd, int capacity, int booked, int tourCapacity,
       int vehicleCapacity, boolean transportRequired, boolean pendingRegularization, boolean startAlert, Instant actualStart, Instant actualEnd,
-      boolean interrupted, String interruptionCause, List<VehicleResponse> vehicles) {
+      boolean interrupted, String interruptionCause, List<VehicleResponse> vehicles, Integer travelersServed,
+      List<ReservationResponse> reservations) {
 
     /** The answers of scheduling, rescheduling and adding vehicles: they do not read the seats held, so they say 0. */
     static DepartureResponse of(Departure departure, int tourCapacity, boolean transportRequired, List<Vehicle> vehicles, Instant now) {
@@ -72,7 +78,33 @@ class DepartureController {
       return new DepartureResponse(departure.code(), departure.serviceId(), departure.status().name(), departure.start(), departure.estimatedEnd(),
           view.capacity(), view.booked(), view.tourCapacity(), view.vehicleCapacity(), view.transportRequired(),
           run.pendingRegularization(), departure.startAlert(now), run.actualStart(), run.actualEnd(), run.interrupted(), run.interruptionCause(),
-          view.vehicles().stream().map(VehicleResponse::of).toList());
+          view.vehicles().stream().map(VehicleResponse::of).toList(), null, null);
+    }
+
+    /** The same, with the reservations of the departure and what each received. */
+    static DepartureResponse of(DepartureView view, java.util.Optional<ServicesView> services, Instant now) {
+      DepartureResponse plain = of(view, now);
+      if (services.isEmpty()) {
+        return plain;
+      }
+      return new DepartureResponse(plain.code(), plain.serviceId(), plain.status(), plain.scheduledStart(), plain.scheduledEnd(), plain.capacity(),
+          plain.booked(), plain.tourCapacity(), plain.vehicleCapacity(), plain.transportRequired(), plain.pendingRegularization(), plain.startAlert(),
+          plain.actualStart(), plain.actualEnd(), plain.interrupted(), plain.interruptionCause(), plain.vehicles(), services.get().travelersServed(),
+          services.get().reservations().stream().map(ReservationResponse::of).toList());
+    }
+  }
+
+  /** A reservation of the departure as its owner says it, with what was recorded for it once it exists. */
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  record ReservationResponse(
+      UUID reservationId, String customer, int travelers, String state, String result, Integer travelersServed, Boolean noShow, String cause) {
+
+    static ReservationResponse of(ServicesView.ReservationView view) {
+      var reservation = view.reservation();
+      var recorded = view.recorded();
+      return new ReservationResponse(reservation.reservationId(), reservation.customer(), reservation.travelers(), reservation.state().name(),
+          recorded.map(r -> r.result().name()).orElse(null), recorded.map(ServiceRecord::travelersServed).orElse(null),
+          recorded.map(ServiceRecord::noShow).orElse(null), recorded.map(ServiceRecord::cause).orElse(null));
     }
   }
 
@@ -97,6 +129,11 @@ class DepartureController {
   /** The body of {@code rescheduleDeparture}: the new start and estimated end, nothing else. */
   record RescheduleDepartureRequest(Instant scheduledStart, Instant scheduledEnd) {}
 
+  /** The body of {@code saveServices}: one entry per reservation; what the entry means is judged by the core. */
+  record SaveServicesRequest(List<ServiceEntryRequest> services) {}
+
+  record ServiceEntryRequest(UUID reservationId, String result, Integer travelersServed, Boolean noShow, String cause) {}
+
   /** The body of {@code addDepartureVehicles}. */
   record AddDepartureVehiclesRequest(List<UUID> vehicleIds) {}
 
@@ -112,12 +149,13 @@ class DepartureController {
   private final StartDeparture startDeparture;
   private final FinishDeparture finishDeparture;
   private final RegularizeDeparture regularizeDeparture;
+  private final SaveServices saveServices;
   private final Clock clock;
 
   DepartureController(
       ScheduleDeparture scheduleDeparture, RescheduleDeparture rescheduleDeparture, AddDepartureVehicles addDepartureVehicles,
       ListDepartures listDepartures, GetDeparture getDeparture, StartDeparture startDeparture, FinishDeparture finishDeparture,
-      RegularizeDeparture regularizeDeparture, Clock clock) {
+      RegularizeDeparture regularizeDeparture, SaveServices saveServices, Clock clock) {
     this.scheduleDeparture = scheduleDeparture;
     this.rescheduleDeparture = rescheduleDeparture;
     this.addDepartureVehicles = addDepartureVehicles;
@@ -126,6 +164,7 @@ class DepartureController {
     this.startDeparture = startDeparture;
     this.finishDeparture = finishDeparture;
     this.regularizeDeparture = regularizeDeparture;
+    this.saveServices = saveServices;
     this.clock = clock;
   }
 
@@ -150,7 +189,35 @@ class DepartureController {
   DepartureResponse read(HttpServletRequest request, @PathVariable String departureCode) {
     requireCode(departureCode);
     Caller caller = (Caller) request.getAttribute(JwtAuthFilter.CALLER);
-    return DepartureResponse.of(getDeparture.execute(new GetDeparture.Query(caller, departureCode)), clock.instant());
+    GetDeparture.Found found = getDeparture.execute(new GetDeparture.Query(caller, departureCode));
+    return DepartureResponse.of(found.view(), found.services(), clock.instant());
+  }
+
+  @PostMapping(path = "/departures/{departureCode}/services", consumes = "application/json")
+  ResponseEntity<DepartureResponse> saveServices(
+      HttpServletRequest request, @PathVariable String departureCode,
+      @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey, @RequestBody SaveServicesRequest body) {
+    requireCode(departureCode);
+    require(body.services() != null, "services");
+    List<ServiceRecord> entries = body.services().stream().map(DepartureController::recordOf).toList();
+    Caller caller = (Caller) request.getAttribute(JwtAuthFilter.CALLER);
+    SaveServices.Saved saved = saveServices.execute(new SaveServices.Command(caller, departureCode, idempotencyKey, entries, MDC.get("traceId")));
+    DepartureResponse response = DepartureResponse.of(saved.view(), saved.services(), clock.instant());
+    return saved.recorded()
+        ? ResponseEntity.status(HttpStatus.CREATED).location(URI.create(DEPARTURES + "/" + saved.view().departure().code())).body(response)
+        : ResponseEntity.ok(response);
+  }
+
+  /** The shape of one entry is judged here; what its numbers mean is judged by {@link ServiceRecord}. */
+  private static ServiceRecord recordOf(ServiceEntryRequest entry) {
+    require(entry != null && entry.reservationId() != null && entry.travelersServed() != null, "services");
+    ServiceResult result;
+    try {
+      result = ServiceResult.valueOf(String.valueOf(entry.result()));
+    } catch (IllegalArgumentException unknown) {
+      throw new InvalidDataException("result", "The result is not one of DELIVERED or NOT_DELIVERED");
+    }
+    return new ServiceRecord(entry.reservationId(), result, entry.travelersServed(), entry.cause(), Boolean.TRUE.equals(entry.noShow()));
   }
 
   @PostMapping(path = "/departures/{departureCode}/executions", consumes = "application/json")

@@ -7,18 +7,23 @@ public final class GetDeparture {
 
   private final DepartureRepository departures;
   private final DepartureViews views;
+  private final ServicesReader services;
 
-  public GetDeparture(DepartureRepository departures, DepartureViews views) {
+  public GetDeparture(DepartureRepository departures, DepartureViews views, ServicesReader services) {
     this.departures = departures;
     this.views = views;
+    this.services = services;
   }
 
   public record Query(Caller caller, String departureCode) {}
 
-  public DepartureView execute(Query query) {
+  /** The departure, and its reservations with what they received unless their owner could not be read (api 006 D-04). */
+  public record Found(DepartureView view, java.util.Optional<ServicesView> services) {}
+
+  public Found execute(Query query) {
     var tenantId = Requests.uuid(query.caller().tenantId());
     Departure departure = departures.findByCode(tenantId, query.departureCode())
         .orElseThrow(() -> new DepartureNotFoundException(query.departureCode()));
-    return views.of(departure);
+    return new Found(views.of(departure), services.read(departure));
   }
 }

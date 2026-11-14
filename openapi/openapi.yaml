@@ -1,14 +1,14 @@
 openapi: 3.0.3
 info:
   title: Multi Tour — operations-cost (the operations built so far)
-  version: 0.6.0
+  version: 0.7.0
   description: |
-    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.6.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
+    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.7.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
     only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
     differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
     service and tested apart), `Departure` flattened without `mark` and the typed lists, and the
     error body, the paging parameters and the paging meta defined here instead of in `_shared.yaml`; in `rescheduleDeparture` the tags and the extensions `x-hu` and `x-permission` are left out. Since 0.5.0 (HU-OPS-003 part A) `booked` of the list, of the reading and of the start and the end is the seats held that commercial-reservation keeps; the answers of scheduling, rescheduling and adding vehicles still answer 0. The mark of pending regularization is the field `pendingRegularization`, always `false` until part B. The design contract
-    lives in `multi-tour-docs`. Operations offered: `getHealth`, `listDepartures`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
+    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
 paths:
   /health:
     get:
@@ -230,6 +230,57 @@ paths:
           application/json:
             schema:
               $ref: '#/components/schemas/FinishRequest'
+      responses:
+        '201':
+          description: Recorded; returns the departure as it is now
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the departure already recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/departures/{departureCode}/services:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    post:
+      operationId: saveServices
+      summary: Save what was delivered to each reservation of the departure (HU-OPS-004)
+      description: |
+        Only a departure in execution accepts it (`422 INVALID_STATUS_TRANSITION` otherwise). Each entry is a reservation of the departure that
+        is in execution; the travelers served go from 0 to the reserved ones, and every traveler not served needs the `cause`
+        (`400 VALIDATION_ERROR` otherwise). A no-show without notice is `NOT_DELIVERED` with `noShow`: the service stays charged. A reservation
+        that is not of the departure, not in execution, or more travelers served than reserved, is `422 BUSINESS_RULE_VIOLATION`. A repeat with
+        the same `Idempotency-Key` answers `200`. `503` when the reservations cannot be read; nothing is written.
+        **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveServicesRequest'
       responses:
         '201':
           description: Recorded; returns the departure as it is now
@@ -881,15 +932,81 @@ components:
             $ref: '#/components/schemas/Vehicle'
         reservations:
           type: array
-          description: Not answered until HU-OPS-004
+          description: Since 0.7.0 the reservations of the departure; omitted when `commercial-reservation` cannot be read
           maxItems: 100
           items:
-            type: object
+            $ref: '#/components/schemas/ReservationService'
+        travelersServed:
+          type: integer
+          minimum: 0
+          description: Since 0.7.0 the real base, the travelers served of the reservations recorded as `DELIVERED`; omitted when the reservations cannot be read
         novelties:
           type: array
           maxItems: 200
           items:
             type: object
+    SaveServicesRequest:
+      type: object
+      additionalProperties: false
+      required: [services]
+      properties:
+        services:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/ServiceEntry'
+    ServiceEntry:
+      type: object
+      additionalProperties: false
+      required: [reservationId, result, travelersServed]
+      properties:
+        reservationId:
+          type: string
+          format: uuid
+        result:
+          type: string
+          enum: [DELIVERED, NOT_DELIVERED]
+        travelersServed:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          description: 0 when `NOT_DELIVERED`, 1 to the travelers reserved when `DELIVERED`; more than reserved is `422 BUSINESS_RULE_VIOLATION`
+        noShow:
+          type: boolean
+          default: false
+          description: A person who did not appear without timely notice; only with `NOT_DELIVERED`, the service stays charged
+        cause:
+          type: string
+          maxLength: 500
+          description: Required when `result` is `NOT_DELIVERED` or fewer travelers were served than reserved
+    ReservationService:
+      type: object
+      required: [reservationId, customer, travelers, state]
+      properties:
+        reservationId:
+          type: string
+          format: uuid
+        customer:
+          type: string
+        travelers:
+          type: integer
+          description: The travelers reserved, as `commercial-reservation` says them
+        state:
+          type: string
+          enum: [ELIGIBLE, NOT_ELIGIBLE, IN_EXECUTION, FINISHED, CANCELLED]
+        result:
+          type: string
+          enum: [DELIVERED, NOT_DELIVERED]
+        travelersServed:
+          type: integer
+          minimum: 0
+          description: Present once recorded
+        noShow:
+          type: boolean
+          description: Present once recorded
+        cause:
+          type: string
     StartExecutionRequest:
       type: object
       additionalProperties: false

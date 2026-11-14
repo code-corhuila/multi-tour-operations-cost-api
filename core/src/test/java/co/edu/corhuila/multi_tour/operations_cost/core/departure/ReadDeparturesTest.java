@@ -38,7 +38,7 @@ class ReadDeparturesTest {
     world.tours.put(OTHER_TOUR, new CatalogTour(OTHER_TOUR, CatalogTour.Type.TOUR, true, 6, false));
     DepartureViews views = new DepartureViews(world, world, world);
     list = new ListDepartures(world, views);
-    get = new GetDeparture(world, views);
+    get = new GetDeparture(world, views, new ServicesReader(world, world));
   }
 
   private Departure put(int n, UUID tour, DepartureStatus status, UUID tenant, int daysFromNow) {
@@ -120,7 +120,7 @@ class ReadDeparturesTest {
   void A_one_departure_is_read_with_its_view_and_one_of_another_tenant_is_not_found() {
     Departure mine = put(1, TOUR, DepartureStatus.SCHEDULED, TENANT, 1);
     put(2, TOUR, DepartureStatus.SCHEDULED, OTHER_TENANT, 1);
-    assertThat(get.execute(new GetDeparture.Query(person, "SAL-001")).departure()).isEqualTo(mine);
+    assertThat(get.execute(new GetDeparture.Query(person, "SAL-001")).view().departure()).isEqualTo(mine);
     assertThatThrownBy(() -> get.execute(new GetDeparture.Query(person, "SAL-002"))).isInstanceOf(DepartureNotFoundException.class);
     assertThatThrownBy(() -> get.execute(new GetDeparture.Query(person, "SAL-404"))).isInstanceOf(DepartureNotFoundException.class);
   }
