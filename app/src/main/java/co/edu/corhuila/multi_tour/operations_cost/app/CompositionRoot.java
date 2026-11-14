@@ -12,6 +12,8 @@ import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcTrans
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicleKeys;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicles;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.AddDepartureVehicles;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.PreviewVehicleChange;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ReplaceDepartureVehicles;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureViews;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.FinishDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.GetDeparture;
@@ -195,6 +197,18 @@ class CompositionRoot {
       DepartureRepository departures, Vehicles vehicles, Outbox outbox, Catalog catalog, Transaction transaction, IdGenerator ids,
       Clock clock) {
     return new AddDepartureVehicles(departures, vehicles, outbox, catalog, transaction, ids, clock);
+  }
+
+  @Bean
+  PreviewVehicleChange previewVehicleChange(DepartureRepository departures, Vehicles vehicles, Catalog catalog) {
+    return new PreviewVehicleChange(departures, vehicles, catalog);
+  }
+
+  @Bean
+  ReplaceDepartureVehicles replaceDepartureVehicles(
+      DepartureRepository departures, Vehicles vehicles, Outbox outbox, Catalog catalog, Transaction transaction, IdGenerator ids,
+      Clock clock) {
+    return new ReplaceDepartureVehicles(departures, vehicles, outbox, catalog, transaction, ids, clock);
   }
 
   @Bean

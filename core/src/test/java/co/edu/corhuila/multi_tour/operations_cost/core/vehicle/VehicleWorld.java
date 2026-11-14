@@ -76,6 +76,11 @@ final class VehicleWorld implements Vehicles, VehicleKeys, Transaction, IdGenera
   }
 
   @Override
+  public void unassign(UUID tenantId, UUID departureId, Collection<UUID> vehicleIds) {
+    // not used by the use cases of this package
+  }
+
+  @Override
   public Optional<UUID> vehicleOf(UUID tenantId, String key) {
     return Optional.ofNullable(keys.get(tenantId + "/" + key));
   }
