@@ -16,6 +16,11 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.Transaction;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.AddDepartureVehicles;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.BusinessRuleViolationException;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureStatus;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureViews;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.FinishDeparture;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.GetDeparture;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ListDepartures;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.StartDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.outbox.OutboxRelay;
 import co.edu.corhuila.multi_tour.operations_cost.core.outbox.Page;
 import co.edu.corhuila.multi_tour.operations_cost.core.outbox.RetryPolicy;
@@ -284,6 +289,36 @@ final class InMemoryWorld
     @Primary
     ListVehicles testListVehicles() {
       return new ListVehicles(WORLD);
+    }
+
+    @Bean
+    @Primary
+    DepartureViews testDepartureViews() {
+      return new DepartureViews(WORLD, WORLD, WORLD);
+    }
+
+    @Bean
+    @Primary
+    ListDepartures testListDepartures(DepartureViews views) {
+      return new ListDepartures(WORLD, views);
+    }
+
+    @Bean
+    @Primary
+    GetDeparture testGetDeparture(DepartureViews views) {
+      return new GetDeparture(WORLD, views);
+    }
+
+    @Bean
+    @Primary
+    StartDeparture testStartDeparture(DepartureViews views) {
+      return new StartDeparture(WORLD, WORLD, WORLD, views, WORLD, UUID::randomUUID, Clock.systemUTC());
+    }
+
+    @Bean
+    @Primary
+    FinishDeparture testFinishDeparture(DepartureViews views) {
+      return new FinishDeparture(WORLD, WORLD, WORLD, views, WORLD, UUID::randomUUID, Clock.systemUTC());
     }
   }
 }
