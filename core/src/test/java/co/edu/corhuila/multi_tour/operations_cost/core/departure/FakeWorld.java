@@ -168,6 +168,16 @@ final class FakeWorld
   }
 
   @Override
+  public List<String> dueToStart(UUID tenantId, Instant now, int limit) {
+    return departures.values().stream()
+        .filter(d -> d.tenantId().equals(tenantId) && d.status() == DepartureStatus.SCHEDULED && !d.start().isAfter(now))
+        .sorted(Comparator.comparing((Departure d) -> d.start()).thenComparing(Departure::code))
+        .limit(limit)
+        .map(Departure::code)
+        .toList();
+  }
+
+  @Override
   public boolean updateExecution(Departure from, Departure to) {
     Departure current = departures.get(from.id());
     if (current == null || !current.tenantId().equals(from.tenantId()) || current.status() != from.status()) {
