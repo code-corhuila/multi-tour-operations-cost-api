@@ -1,14 +1,14 @@
 openapi: 3.0.3
 info:
   title: Multi Tour — operations-cost (the operations built so far)
-  version: 0.14.0
+  version: 0.15.0
   description: |
-    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.14.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
+    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.16.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
     only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
     differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
     service and tested apart), `Departure` flattened without `mark` and the typed lists, and the
     error body, the paging parameters and the paging meta defined here instead of in `_shared.yaml`; in `rescheduleDeparture` and `recordExtraordinaryCancellation` the tags and the extensions `x-hu` and `x-permission` are left out. Since 0.5.0 (HU-OPS-003 part A) `booked` of the list, of the reading and of the start and the end is the seats held that commercial-reservation keeps; the answers of scheduling, rescheduling and adding vehicles still answer 0. The mark of pending regularization is the field `pendingRegularization`, always `false` until part B. The design contract
-    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Since 0.8.0 (HU-OPS-007) it adds `recordCost` and `listCosts`. Since 0.9.0 (HU-OPS-002 part B) it adds the two internal routes of the saga, `previewVehicleChange` and `replaceDepartureVehicles`. Since 0.10.0 (HU-OPS-005) it adds `recordExtraordinaryCancellation` and the cancellation of each reservation in `getDeparture`. Since 0.11.0 (HU-OPS-006) it adds the internal route `cancelDeparture`, the result `NOT_CARRIED_OUT` of `regularizeDeparture` and the `cancellation` of a departure. Since 0.12.0 (HU-OPS-008) it adds `registerNovelty`, offered only for the type `PERSONAL_EMERGENCY`, and the `novelties` of a departure. Since 0.13.0 (HU-IDA-004) every `Departure` answers its `timeZone`, the zone it keeps since it was scheduled. In this copy `RegisterNoveltyRequest` requires `affected`, which the design contract does not: only the personal emergency is offered, and the copy goes back to the design contract when the ordinary novelty is offered. The `novelties` are not answered to the exceptional access of the platform: the detail of an emergency can name health facts. Since 0.14.0 (HU-SEC-005, api spec 013) it adds the internal route `receivePlatformEvent`, where job 7 delivers `AccountSessionsRevoked`; `PlatformEventEnvelope` keeps its UUIDs and instants inline and says `additionalProperties: true` in the envelope and its payload, which the design contract leaves implicit (the same tolerance). Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `previewVehicleChange`, `replaceDepartureVehicles`, `cancelDeparture`, `recordExtraordinaryCancellation`, `registerNovelty`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`, `receivePlatformEvent`.
+    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Since 0.8.0 (HU-OPS-007) it adds `recordCost` and `listCosts`. Since 0.9.0 (HU-OPS-002 part B) it adds the two internal routes of the saga, `previewVehicleChange` and `replaceDepartureVehicles`. Since 0.10.0 (HU-OPS-005) it adds `recordExtraordinaryCancellation` and the cancellation of each reservation in `getDeparture`. Since 0.11.0 (HU-OPS-006) it adds the internal route `cancelDeparture`, the result `NOT_CARRIED_OUT` of `regularizeDeparture` and the `cancellation` of a departure. Since 0.12.0 (HU-OPS-008) it adds `registerNovelty`, offered only for the type `PERSONAL_EMERGENCY`, and the `novelties` of a departure. Since 0.13.0 (HU-IDA-004) every `Departure` answers its `timeZone`, the zone it keeps since it was scheduled. In this copy `RegisterNoveltyRequest` requires `affected`, which the design contract does not: only the personal emergency is offered, and the copy goes back to the design contract when the ordinary novelty is offered. The `novelties` are not answered to the exceptional access of the platform: the detail of an emergency can name health facts. Since 0.14.0 (HU-SEC-005, api spec 013) it adds the internal route `receivePlatformEvent`, where job 7 delivers `AccountSessionsRevoked`; `PlatformEventEnvelope` keeps its UUIDs and instants inline and says `additionalProperties: true` in the envelope and its payload, which the design contract leaves implicit (the same tolerance). Since 0.15.0 (HU-WRK-003, job 3 spec 002) it adds the internal route `listDueToStartDepartures`. Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `previewVehicleChange`, `replaceDepartureVehicles`, `cancelDeparture`, `recordExtraordinaryCancellation`, `registerNovelty`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`, `receivePlatformEvent`, `listDueToStartDepartures`.
 paths:
   /health:
     get:
@@ -844,6 +844,57 @@ paths:
                   marked:
                     type: integer
                     minimum: 0
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/operations-cost/internal/tenants/{tenantId}/departures/due-to-start:
+    get:
+      tags: [Internal]
+      operationId: listDueToStartDepartures
+      summary: List the scheduled departures of a tenant whose start has passed (job 3, HU-WRK-003)
+      description: |
+        Answers the codes of the `SCHEDULED` departures of the tenant in the path whose scheduled start has passed, oldest start first,
+        at most `limit`. It does not look at the state of the tenant and changes nothing (RN-OPS-API-140). Only codes of the tenant of
+        the path are answered. **Requires:** `SERVICE` role; a person's token is `403`.
+      x-hu: HU-WRK-003
+      x-permission: SERVICE
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: The due departures of the tenant, oldest start first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                additionalProperties: false
+                properties:
+                  data:
+                    type: array
+                    maxItems: 100
+                    items:
+                      type: object
+                      required: [departureCode]
+                      additionalProperties: false
+                      properties:
+                        departureCode:
+                          type: string
+                          pattern: '^SAL-[0-9]{3,6}$'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
