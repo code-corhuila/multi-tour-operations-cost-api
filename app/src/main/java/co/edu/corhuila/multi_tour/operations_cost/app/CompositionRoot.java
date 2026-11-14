@@ -6,6 +6,7 @@ import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcDepar
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcIdempotencyKeys;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutbox;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutboxEvents;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcServiceRecords;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcTransaction;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicleKeys;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicles;
@@ -24,6 +25,7 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RegularizeDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecords;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Transaction;
 import co.edu.corhuila.multi_tour.operations_cost.core.outbox.OutboxEvents;
@@ -95,6 +97,11 @@ class CompositionRoot {
   @Bean
   IdempotencyKeys idempotencyKeys(JdbcClient jdbc) {
     return new JdbcIdempotencyKeys(jdbc);
+  }
+
+  @Bean
+  ServiceRecords serviceRecords(JdbcClient jdbc) {
+    return new JdbcServiceRecords(jdbc);
   }
 
   @Bean

@@ -93,6 +93,13 @@ public record Departure(
     return changed;
   }
 
+  /** What was delivered to the reservations is recorded only while the departure runs (RN-OPS-API-60). */
+  public void acceptServices() {
+    if (status != DepartureStatus.IN_EXECUTION) {
+      throw new InvalidStatusTransitionException(status, "have its services recorded");
+    }
+  }
+
   /**
    * The same departure, now running, with the real start that a person recorded (RN-EJE-001). The state is judged first; the
    * start is never earlier than the scheduled one and never later than the moment it is recorded.
