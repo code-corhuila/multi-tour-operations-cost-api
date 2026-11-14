@@ -72,6 +72,22 @@ final class InMemoryWorld implements DepartureRepository, Outbox, IdempotencyKey
   }
 
   @Override
+  public Optional<Departure> findByCode(UUID tenantId, String code) {
+    return departures.values().stream().filter(d -> d.tenantId().equals(tenantId) && d.code().equals(code)).findFirst();
+  }
+
+  @Override
+  public boolean updateSchedule(Departure from, Departure to) {
+    departures.put(to.id(), to);
+    return true;
+  }
+
+  @Override
+  public boolean waiting(UUID tenantId, UUID aggregateId, String eventType) {
+    return events.stream().anyMatch(e -> e.tenantId().equals(tenantId) && e.aggregateId().equals(aggregateId) && e.eventType().equals(eventType));
+  }
+
+  @Override
   public void add(OutboxEvent event) {
     events.add(event);
   }

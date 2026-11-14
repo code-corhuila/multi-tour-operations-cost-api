@@ -12,4 +12,13 @@ public interface DepartureRepository {
   void save(Departure departure);
 
   Optional<Departure> find(UUID tenantId, UUID id);
+
+  Optional<Departure> findByCode(UUID tenantId, String code);
+
+  /**
+   * Replaces the start and the estimated end that were read ({@code from}) by the new ones ({@code to}), only if the departure
+   * is still {@code SCHEDULED} and still has the dates that were read. False when it is not there, has left that state or was
+   * changed meanwhile, so a change decided on a stale reading is never written and two changes never both win.
+   */
+  boolean updateSchedule(Departure from, Departure to);
 }

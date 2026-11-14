@@ -10,7 +10,6 @@ import java.util.Optional;
 import java.util.UUID;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 
 /**
@@ -40,17 +39,7 @@ public final class HttpCatalog implements Catalog {
     if (baseUrl == null || baseUrl.isBlank()) {
       throw new IllegalStateException("COMMERCIAL_RESERVATION_BASE_URL is required: http://host:port of commercial-reservation");
     }
-    // a redirect is never followed: the credential goes to the configured catalog and to no other address
-    SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory() {
-      @Override
-      protected void prepareConnection(java.net.HttpURLConnection connection, String httpMethod) throws java.io.IOException {
-        super.prepareConnection(connection, httpMethod);
-        connection.setInstanceFollowRedirects(false);
-      }
-    };
-    factory.setConnectTimeout(timeout);
-    factory.setReadTimeout(timeout);
-    this.client = RestClient.builder().baseUrl(baseUrl.strip()).requestFactory(factory).build();
+    this.client = OutboundHttp.client(baseUrl, timeout);
     this.credentials = credentials;
   }
 
