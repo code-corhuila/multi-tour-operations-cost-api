@@ -1,14 +1,14 @@
 openapi: 3.0.3
 info:
   title: Multi Tour — operations-cost (the operations built so far)
-  version: 0.7.0
+  version: 0.8.0
   description: |
-    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.7.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
+    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.8.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
     only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
     differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
     service and tested apart), `Departure` flattened without `mark` and the typed lists, and the
     error body, the paging parameters and the paging meta defined here instead of in `_shared.yaml`; in `rescheduleDeparture` the tags and the extensions `x-hu` and `x-permission` are left out. Since 0.5.0 (HU-OPS-003 part A) `booked` of the list, of the reading and of the start and the end is the seats held that commercial-reservation keeps; the answers of scheduling, rescheduling and adding vehicles still answer 0. The mark of pending regularization is the field `pendingRegularization`, always `false` until part B. The design contract
-    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
+    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Since 0.8.0 (HU-OPS-007) it adds `recordCost` and `listCosts`. Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
 paths:
   /health:
     get:
@@ -297,6 +297,79 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/departures/{departureCode}/costs:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    get:
+      operationId: listCosts
+      summary: The operational costs of the departure with their total (HU-OPS-007)
+      description: |
+        The lines in the order recorded, their total, the travelers served and the catalogued cost when the tour has one. `503` when the
+        catalog cannot be read. **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+      responses:
+        '200':
+          description: The sheet of costs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostSheet'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: recordCost
+      summary: Record an operational cost of the departure (HU-OPS-007, RF-009)
+      description: |
+        Only a departure `IN_EXECUTION` or `FINISHED` accepts it (`422 INVALID_STATUS_TRANSITION` otherwise). A `CALCULATED` cost takes its
+        amount from the catalogued cost of the tour and the travelers served; it is `422 BUSINESS_RULE_VIOLATION` when the tour has no
+        parametrized cost or no travelers served are recorded. A `MANUAL` cost carries its amount, and when the tour has no parametrized
+        cost it needs its `justification` (`422 BUSINESS_RULE_VIOLATION` otherwise). A repeat with the same `Idempotency-Key` answers
+        `200`. Writes `OperationalCostRecorded`. **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordCostRequest'
+      responses:
+        '201':
+          description: Recorded; returns the line
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationalCost'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the line already recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationalCost'
         '400':
           $ref: '#/components/responses/BadRequest'
         '401':
@@ -1007,6 +1080,73 @@ components:
           description: Present once recorded
         cause:
           type: string
+    RecordCostRequest:
+      type: object
+      additionalProperties: false
+      required: [concept, mode]
+      properties:
+        concept:
+          type: string
+          minLength: 1
+          maxLength: 200
+        mode:
+          type: string
+          enum: [CALCULATED, MANUAL]
+        amountCents:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Required for `MANUAL` and refused for `CALCULATED`, whose amount the service computes
+        justification:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Required for a `MANUAL` cost when the tour has no parametrized cost, and refused otherwise
+    OperationalCost:
+      type: object
+      required: [costId, concept, amountCents, mode, withoutParametrization, recordedAt]
+      properties:
+        costId:
+          type: string
+          format: uuid
+        concept:
+          type: string
+        amountCents:
+          type: integer
+          format: int64
+        mode:
+          type: string
+          enum: [CALCULATED, MANUAL]
+        unitCostCents:
+          type: integer
+          format: int64
+        travelersServed:
+          type: integer
+        withoutParametrization:
+          type: boolean
+        justification:
+          type: string
+        recordedAt:
+          type: string
+          format: date-time
+    CostSheet:
+      type: object
+      required: [data, totalCents, travelersServed]
+      properties:
+        data:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/OperationalCost'
+        totalCents:
+          type: integer
+          format: int64
+        travelersServed:
+          type: integer
+        baseCostCents:
+          type: integer
+          format: int64
+          description: The catalogued cost of the tour; absent when the tour has no parametrized cost
     StartExecutionRequest:
       type: object
       additionalProperties: false

@@ -92,7 +92,13 @@ public final class HttpCatalog implements Catalog {
     if (transport != null && !transport.isNull() && !transport.isBoolean()) {
       throw new IllegalStateException("transportRequired is not what the contract says");
     }
-    return new CatalogTour(serviceId, type, active, capacity.isNull() ? 0 : capacity.asInt(), transport != null && transport.asBoolean());
+    // the operational cost the catalog parametrizes: absent or null is a tour without one; present, it must be an integer (HU-OPS-007)
+    JsonNode cost = item.get("baseOperationalCostCents");
+    if (cost != null && !cost.isNull() && !(cost.isIntegralNumber() && cost.canConvertToLong())) {
+      throw new IllegalStateException("baseOperationalCostCents is not what the contract says");
+    }
+    Optional<Long> catalogued = cost == null || cost.isNull() ? Optional.empty() : Optional.of(cost.asLong());
+    return new CatalogTour(serviceId, type, active, capacity.isNull() ? 0 : capacity.asInt(), transport != null && transport.asBoolean(), catalogued);
   }
 
   private static String text(JsonNode item, String field) {

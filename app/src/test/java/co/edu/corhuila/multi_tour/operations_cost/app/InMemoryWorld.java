@@ -18,6 +18,10 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.SaveServices;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecord;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecords;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServicesReader;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ListCosts;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.OperationalCost;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.OperationalCosts;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordCost;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Transaction;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.AddDepartureVehicles;
@@ -59,7 +63,7 @@ import org.springframework.context.annotation.Primary;
  * on its own: how the real adapters behave is the business of their own tests (the database, the catalog).
  */
 final class InMemoryWorld
-    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, Vehicles, VehicleKeys, ServiceRecords {
+    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, Vehicles, VehicleKeys, ServiceRecords, OperationalCosts {
 
   /** One for the whole test run: the beans of the configuration below are this one. */
   static final InMemoryWorld WORLD = new InMemoryWorld();
@@ -74,6 +78,8 @@ final class InMemoryWorld
   final Map<String, UUID> vehicleKeys = new HashMap<>();
   final Map<UUID, List<ReservationOfDeparture>> reservationRows = new HashMap<>();
   final Map<UUID, Map<UUID, ServiceRecord>> serviceRows = new HashMap<>();
+  final List<OperationalCost> costRows = new ArrayList<>();
+  final Map<String, OperationalCost> costKeys = new HashMap<>();
   volatile boolean reservationsDown;
   /** Only the reading of the reservations of a departure fails; the seats still answer. */
   volatile boolean reservationListDown;
@@ -90,6 +96,8 @@ final class InMemoryWorld
       vehicleKeys.clear();
       reservationRows.clear();
       serviceRows.clear();
+      costRows.clear();
+      costKeys.clear();
       tours.clear();
       catalogDown = false;
       seats.clear();
@@ -217,6 +225,26 @@ final class InMemoryWorld
   public void saveAll(UUID tenantId, UUID departureId, Collection<ServiceRecord> records, UUID by, Instant at) {
     Map<UUID, ServiceRecord> rows = serviceRows.computeIfAbsent(departureId, id -> new LinkedHashMap<>());
     records.forEach(record -> rows.put(record.reservationId(), record));
+  }
+
+  @Override
+  public void add(OperationalCost cost, String idempotencyKey) {
+    String key = cost.tenantId() + "/" + idempotencyKey;
+    if (costKeys.containsKey(key)) {
+      throw new DuplicateKeyException();
+    }
+    costRows.add(cost);
+    costKeys.put(key, cost);
+  }
+
+  @Override
+  public Optional<OperationalCost> findByKey(UUID tenantId, String idempotencyKey) {
+    return Optional.ofNullable(costKeys.get(tenantId + "/" + idempotencyKey));
+  }
+
+  @Override
+  public List<OperationalCost> costsOf(UUID tenantId, UUID departureId) {
+    return costRows.stream().filter(c -> c.tenantId().equals(tenantId) && c.departureId().equals(departureId)).toList();
   }
 
   @Override
@@ -356,6 +384,18 @@ final class InMemoryWorld
     @Primary
     GetDeparture testGetDeparture(DepartureViews views, ServicesReader reader) {
       return new GetDeparture(WORLD, views, reader);
+    }
+
+    @Bean
+    @Primary
+    RecordCost testRecordCost() {
+      return new RecordCost(WORLD, WORLD, WORLD, WORLD, WORLD, WORLD, UUID::randomUUID, Clock.systemUTC());
+    }
+
+    @Bean
+    @Primary
+    ListCosts testListCosts() {
+      return new ListCosts(WORLD, WORLD, WORLD, WORLD);
     }
 
     @Bean
