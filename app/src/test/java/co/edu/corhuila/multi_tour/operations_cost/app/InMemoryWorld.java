@@ -387,6 +387,18 @@ final class InMemoryWorld
 
     @Bean
     @Primary
+    co.edu.corhuila.multi_tour.operations_cost.core.security.AccountSessionCutoffs testAccountSessionCutoffs() {
+      return InMemoryCutoffs.STORE;
+    }
+
+    @Bean
+    @Primary
+    co.edu.corhuila.multi_tour.operations_cost.core.security.ApplyAccountSessionsRevoked testApplyAccountSessionsRevoked() {
+      return new co.edu.corhuila.multi_tour.operations_cost.core.security.ApplyAccountSessionsRevoked(InMemoryCutoffs.STORE, InMemoryCutoffs.STORE, WORLD);
+    }
+
+    @Bean
+    @Primary
     OutboxRelay testOutboxRelay() {
       return new OutboxRelay(InMemoryOutboxEvents.STORE, Clock.systemUTC(),
           new RetryPolicy(java.time.Duration.ofSeconds(5), java.time.Duration.ofMinutes(15), 20));
