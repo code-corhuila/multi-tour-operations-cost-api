@@ -1,14 +1,14 @@
 openapi: 3.0.3
 info:
   title: Multi Tour — operations-cost (the operations built so far)
-  version: 0.2.1
+  version: 0.3.0
   description: |
-    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.2.1) that the contract gate loads (ADR-004 D7). It keeps
+    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.3.0) that the contract gate loads (ADR-004 D7). It keeps
     only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
     differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
     service and tested apart), `Departure` flattened without `actualStart`, `actualEnd`, `mark` and the typed lists, and the
-    error body defined here instead of in `_shared.yaml`; in `rescheduleDeparture` the sentence about the overlap of vehicles (HU-OPS-002, not built), the tags and the extensions `x-hu` and `x-permission` are left out. The `booked` of an answer is always 0 until the reservations of a departure are read for it (HU-OPS-003). The design contract
-    lives in `multi-tour-docs`. Operations offered: `getHealth`, `scheduleDeparture`, `rescheduleDeparture`.
+    error body, the paging parameters and the paging meta defined here instead of in `_shared.yaml`; in `rescheduleDeparture` the sentence about the overlap of vehicles (HU-OPS-002, not built), the tags and the extensions `x-hu` and `x-permission` are left out. The `booked` of an answer is always 0 until the reservations of a departure are read for it (HU-OPS-003). The design contract
+    lives in `multi-tour-docs`. Operations offered: `getHealth`, `scheduleDeparture`, `rescheduleDeparture`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
 paths:
   /health:
     get:
@@ -111,8 +111,127 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/internal/outbox:
+    get:
+      operationId: listOutboxEvents
+      summary: Read the events waiting
+      description: The pending events whose next attempt is due, oldest first, in pages. **Requires:** `SERVICE` role.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING]
+            default: PENDING
+      responses:
+        '200':
+          description: The events waiting
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OutboxEvent'
+                  meta:
+                    type: object
+                    required: [page, limit, total, totalPages]
+                    properties:
+                      page:
+                        type: integer
+                      limit:
+                        type: integer
+                      total:
+                        type: integer
+                      totalPages:
+                        type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/operations-cost/internal/outbox/{eventId}/published:
+    parameters:
+      - $ref: '#/components/parameters/EventIdPath'
+    post:
+      operationId: markOutboxEventPublished
+      summary: Mark an event delivered
+      description: An event already published stays as it is; one given up is published too. **Requires:** `SERVICE` role.
+      responses:
+        '200':
+          description: The event is marked published
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboxEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/operations-cost/internal/outbox/{eventId}/attempts:
+    parameters:
+      - $ref: '#/components/parameters/EventIdPath'
+    post:
+      operationId: recordOutboxEventAttempt
+      summary: Record a failed delivery
+      description: Adds one to the attempts, keeps the error and moves the next attempt; the 20th attempt gives the event up. **Requires:** `SERVICE` role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OutboxAttemptRequest'
+      responses:
+        '200':
+          description: The attempt is recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboxEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
 components:
   parameters:
+    EventIdPath:
+      name: eventId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
     DepartureCode:
       name: departureCode
       in: path
@@ -152,6 +271,62 @@ components:
     DepartureStatus:
       type: string
       enum: [SCHEDULED, IN_EXECUTION, PENDING_REGULARIZATION, FINISHED, CANCELLED]
+    OutboxEvent:
+      type: object
+      required: [eventId, eventType, eventVersion, tenantId, aggregateId, payload, correlationId, occurredAt, status, attempts, nextAttemptAt]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+        eventVersion:
+          type: integer
+          minimum: 1
+        tenantId:
+          type: string
+          format: uuid
+        aggregateId:
+          type: string
+          format: uuid
+        actorId:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        payload:
+          type: object
+        correlationId:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: string
+          enum: [PENDING, PUBLISHED, FAILED]
+        attempts:
+          type: integer
+          minimum: 0
+        lastError:
+          type: string
+          nullable: true
+        nextAttemptAt:
+          type: string
+          format: date-time
+    OutboxAttemptRequest:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          minLength: 1
+          maxLength: 1000
     RescheduleDepartureRequest:
       type: object
       required: [scheduledStart, scheduledEnd]

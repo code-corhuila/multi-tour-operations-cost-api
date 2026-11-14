@@ -71,11 +71,7 @@ class DepartureController {
       HttpServletRequest request,
       @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey,
       @RequestBody ScheduleDepartureRequest body) {
-    // the shape of the body is judged before anything is read from another domain
-    require(body.serviceId() != null, "serviceId");
-    require(body.scheduledStart() != null, "scheduledStart");
-    require(body.scheduledEnd() != null, "scheduledEnd");
-    require(body.timeZone() != null && !body.timeZone().isBlank(), "timeZone");
+    // the shape of the body is judged by the use case after the key: a repeat answers 200 whatever it carries (Annex C)
     Caller caller = (Caller) request.getAttribute(JwtAuthFilter.CALLER);
     ScheduleDeparture.Scheduled result = scheduleDeparture.execute(new ScheduleDeparture.Command(
         caller, idempotencyKey, body.serviceId(), body.scheduledStart(), body.scheduledEnd(), body.timeZone(),

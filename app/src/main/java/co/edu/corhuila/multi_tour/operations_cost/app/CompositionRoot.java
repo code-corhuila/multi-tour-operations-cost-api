@@ -5,6 +5,7 @@ import co.edu.corhuila.multi_tour.operations_cost.adapters.catalog.HttpReservati
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcDepartureRepository;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcIdempotencyKeys;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutbox;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutboxEvents;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcTransaction;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Catalog;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureRepository;
@@ -15,6 +16,9 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDepar
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Transaction;
+import co.edu.corhuila.multi_tour.operations_cost.core.outbox.OutboxEvents;
+import co.edu.corhuila.multi_tour.operations_cost.core.outbox.OutboxRelay;
+import co.edu.corhuila.multi_tour.operations_cost.core.outbox.RetryPolicy;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -101,6 +105,28 @@ class CompositionRoot {
       DepartureRepository departures, Outbox outbox, Reservations reservations, Catalog catalog, Transaction transaction,
       IdGenerator ids, Clock clock) {
     return new RescheduleDeparture(departures, outbox, reservations, catalog, transaction, ids, clock);
+  }
+
+  @Bean
+  OutboxEvents outboxEvents(JdbcClient jdbc, ObjectMapper json) {
+    return new JdbcOutboxEvents(jdbc, json);
+  }
+
+  /** The wait between attempts and the number of them (ADR-004 D10), from the configuration. */
+  @Bean
+  RetryPolicy outboxRetryPolicy(
+      @Value("${outbox.retry.base:PT5S}") Duration base, @Value("${outbox.retry.cap:PT15M}") Duration cap,
+      @Value("${outbox.retry.max-attempts:20}") int maxAttempts) {
+    // a bare number in the configuration is read as milliseconds, so a typo must not turn into a hammer
+    if (base.compareTo(Duration.ofSeconds(1)) < 0 || cap.compareTo(Duration.ofHours(24)) > 0) {
+      throw new IllegalStateException("outbox.retry.base must be at least 1 s and outbox.retry.cap at most 24 h");
+    }
+    return new RetryPolicy(base, cap, maxAttempts);
+  }
+
+  @Bean
+  OutboxRelay outboxRelay(OutboxEvents events, Clock clock, RetryPolicy policy) {
+    return new OutboxRelay(events, clock, policy);
   }
 
   @Bean

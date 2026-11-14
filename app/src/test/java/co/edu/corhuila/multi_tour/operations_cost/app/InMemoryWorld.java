@@ -13,6 +13,8 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.OutboxEvent;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Transaction;
+import co.edu.corhuila.multi_tour.operations_cost.core.outbox.OutboxRelay;
+import co.edu.corhuila.multi_tour.operations_cost.core.outbox.RetryPolicy;
 import java.time.Clock;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -135,6 +137,13 @@ final class InMemoryWorld implements DepartureRepository, Outbox, IdempotencyKey
     @Primary
     ScheduleDeparture testScheduleDeparture() {
       return new ScheduleDeparture(WORLD, WORLD, WORLD, WORLD, WORLD, UUID::randomUUID, Clock.systemUTC());
+    }
+
+    @Bean
+    @Primary
+    OutboxRelay testOutboxRelay() {
+      return new OutboxRelay(InMemoryOutboxEvents.STORE, Clock.systemUTC(),
+          new RetryPolicy(java.time.Duration.ofSeconds(5), java.time.Duration.ofMinutes(15), 20));
     }
 
     @Bean

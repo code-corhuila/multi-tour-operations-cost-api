@@ -5,6 +5,7 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureNotFou
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DependencyUnavailableException;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.InvalidDataException;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.InvalidStatusTransitionException;
+import co.edu.corhuila.multi_tour.operations_cost.core.outbox.OutboxEventNotFoundException;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.CallerNotAllowedException;
 import com.fasterxml.jackson.databind.JsonMappingException;
 import com.fasterxml.jackson.databind.exc.UnrecognizedPropertyException;
@@ -81,6 +82,11 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
   /** Another tenant's departure is the same as none: the answer does not tell them apart. */
   @ExceptionHandler(DepartureNotFoundException.class)
   ResponseEntity<Object> departureNotFound(DepartureNotFoundException e) {
+    return answer(HttpStatus.NOT_FOUND, "NOT_FOUND", e.getMessage(), null);
+  }
+
+  @ExceptionHandler(OutboxEventNotFoundException.class)
+  ResponseEntity<Object> eventNotFound(OutboxEventNotFoundException e) {
     return answer(HttpStatus.NOT_FOUND, "NOT_FOUND", e.getMessage(), null);
   }
 

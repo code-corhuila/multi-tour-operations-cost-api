@@ -7,7 +7,12 @@ Governance and documentation live in [`multi-tour-docs`](https://github.com/code
 
 ## What it is
 
-A Java 21 / Spring Boot 3.5 service in three Maven modules: `core` (the domain and its ports, no framework), `adapters` (HTTP) and `app` (the composition root). It will own the departures of the tours, starting with scheduling them (HU-OPS-001). Today it is the base the first operations are built on: `GET /health` without a token, the validation of the RS256 token by the service itself, one error body for every failure, the correlation id, the limits of the server and of the database pool, and a 16 KB limit on a body.
+A Java 21 / Spring Boot 3.5 service in three Maven modules: `core` (the domain and its ports, no framework), `adapters` (HTTP, JDBC and the HTTP clients of other domains) and `app` (the composition root). It owns the departures of the tours (HU-OPS-001):
+
+- `POST /api/v1/operations-cost/departures` schedules a departure of a tour of the catalog (the Tenant Administrator, with an `Idempotency-Key`), and `PUT /api/v1/operations-cost/departures/{departureCode}/schedule` changes its date while it has no reservations. Both write the event of the change (`SalidaScheduled`, `SalidaRescheduled`) in the same transaction.
+- The tour is read from `commercial-reservation` (its catalog) and the seats held from its list of departures, with the token of the caller; neither is ever read from its database.
+- Three internal routes under `/api/v1/operations-cost/internal/outbox`, open only to the SERVICE role, let job 7 (`multi-tour-worker-event-relay`) read the pending events and mark each one delivered or failed.
+- `GET /health` without a token, the validation of the RS256 token by the service itself, one error body for every failure, the correlation id, the limits of the server and of the database pool, and a 16 KB limit on a body.
 
 ## How to start it
 
@@ -19,11 +24,11 @@ In the schema `operations_cost` of the single PostgreSQL instance of `multi-tour
 
 ## How to test it
 
-`mvn -B verify` with Java 21; the persistence tests need a PostgreSQL with the schema of `multi-tour-operations-cost-db`, which `sh scripts/prepare-test-db.sh up` makes (a throwaway container) and prints as `TEST_DATABASE_URL`; without it they are skipped, and the CI fails if any was. `sh deploy/tests/deploy-check.sh` tests the image. Both run on every pull request to `develop` and `qa` (`ci.yml`). The code coverage floor (JaCoCo) is added with the first business code.
+`mvn -B verify` with Java 21; the persistence tests need a PostgreSQL with the schema of `multi-tour-operations-cost-db`, which `sh scripts/prepare-test-db.sh up` makes (a throwaway container) and prints as `TEST_DATABASE_URL`; without it they are skipped, and the CI fails if any was. `sh deploy/tests/deploy-check.sh` tests the image. Both run on every pull request to `develop` and `qa` (`ci.yml`). JaCoCo measures the line coverage of every module and `core`, the domain, fails the build under 95 % (it was 99.6 % when the floor was set); `adapters` is measured too, but most of its tests live in `app` and the persistence ones need `TEST_DATABASE_URL`, so it has no floor of its own. The report is in `<module>/target/site/jacoco/`.
 
 ## What is missing
 
-The routes of the departures, the catalog and reservations adapters, and the check of the database in `/health`. See the specs in `07-api/specs/operations-cost/multi-tour-operations-cost-api/`.
+The rest of the domain: the list and the read of a departure, the vehicles, the execution, the costs and the cancellation (HU-OPS-002 to HU-OPS-007); the check of the database in `/health`; `booked` is always 0 in the answers until the reservations of a departure are read for it; and `SalidaRescheduled` is published but no service consumes it yet. The declared gaps are in the specs of `07-api/specs/operations-cost/multi-tour-operations-cost-api/`.
 
 ## Branching
 
