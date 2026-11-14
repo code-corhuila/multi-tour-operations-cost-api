@@ -6,6 +6,8 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.Catalog;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.CatalogTour;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
+import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.VehicleKeys;
+import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.Vehicles;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
@@ -35,6 +37,8 @@ abstract class PostgresTest {
   static JdbcOutbox outbox;
   static JdbcIdempotencyKeys keys;
   static JdbcTransaction transaction;
+  static Vehicles vehicles;
+  static VehicleKeys vehicleKeys;
 
   @BeforeAll
   static void connect() {
@@ -48,6 +52,8 @@ abstract class PostgresTest {
     departures = new JdbcDepartureRepository(jdbc);
     outbox = new JdbcOutbox(jdbc, new ObjectMapper());
     keys = new JdbcIdempotencyKeys(jdbc);
+    vehicles = new JdbcVehicles(jdbc);
+    vehicleKeys = new JdbcVehicleKeys(jdbc);
     transaction = new JdbcTransaction(new DataSourceTransactionManager(dataSource));
   }
 
