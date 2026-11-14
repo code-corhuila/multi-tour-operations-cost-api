@@ -110,6 +110,8 @@ public class JwtAuthFilter extends OncePerRequestFilter {
         if (!"exceptional".equals(access) && !"emergency".equals(access)) {
           return null;
         }
+        // the fact of each use carries the tenant as an id, so a tenant that is not one is a refusal here and never a 500 later
+        canonicalUuid(claims.getStringClaim("tenantId"));
         List<String> scope = claims.getStringListClaim("scope");
         exceptional = new ExceptionalAccess(access, scope == null ? Set.of() : Set.copyOf(scope), canonicalUuid(claims.getStringClaim("authorizationId")));
       }

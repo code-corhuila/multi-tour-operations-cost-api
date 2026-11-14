@@ -196,6 +196,7 @@ class JwtFilterTest extends ShellTest {
     assertRefused(bearer(exceptional("exceptional", List.of("OPERATIONS")).claim("authorizationId", "not-a-uuid")));
     assertRefused(bearer(exceptional("exceptional", List.of("OPERATIONS")).claim("authorizationId", "1-1-1-1-1")));
     assertRefused(bearer(exceptional("exceptional", List.of("OPERATIONS", "EVERYTHING"))));
+    assertRefused(bearer(exceptional("exceptional", List.of("OPERATIONS")).claim("tenantId", "tenant-1")));
     assertRefused(bearer(exceptional("exceptional", List.of())));
     assertRefused(bearer(exceptional("exceptional", List.of("OPERATIONS")).claim("scope", "OPERATIONS")));
     // the mark narrows only the Platform Administrator for one tenant: any other shape is refused

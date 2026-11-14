@@ -333,6 +333,12 @@ final class InMemoryWorld
 
     @Bean
     @Primary
+    co.edu.corhuila.multi_tour.operations_cost.core.security.ExceptionalAccessAudit testExceptionalAccessAudit() {
+      return new co.edu.corhuila.multi_tour.operations_cost.adapters.security.OutboxExceptionalAccessAudit(WORLD, UUID::randomUUID, Clock.systemUTC());
+    }
+
+    @Bean
+    @Primary
     OutboxRelay testOutboxRelay() {
       return new OutboxRelay(InMemoryOutboxEvents.STORE, Clock.systemUTC(),
           new RetryPolicy(java.time.Duration.ofSeconds(5), java.time.Duration.ofMinutes(15), 20));
