@@ -107,6 +107,91 @@ class PostgresDepartureExecutionTest extends PostgresTest {
   }
 
   @Test
+  void I_a_mark_is_stored_and_read_and_a_start_clears_it_but_keeps_its_moment() {
+    UUID tenant = UUID.randomUUID();
+    Departure created = began(tenant, NOW.minus(Duration.ofHours(12)));
+    Departure marked = created.markPending(NOW);
+    assertThat(departures.updateExecution(created, marked)).isTrue();
+    Departure read = departures.find(tenant, created.id()).orElseThrow();
+    assertThat(read).isEqualTo(marked);
+    assertThat(read.status()).isEqualTo(DepartureStatus.SCHEDULED);
+    assertThat(read.execution().pendingRegularization()).isTrue();
+    assertThat(read.execution().pendingMarkedAt()).isEqualTo(NOW);
+    Departure started = read.start(NOW.minus(Duration.ofHours(11)), STARTER, NOW);
+    assertThat(departures.updateExecution(read, started)).isTrue();
+    Departure afterStart = departures.find(tenant, created.id()).orElseThrow();
+    assertThat(afterStart.execution().pendingRegularization()).isFalse();
+    assertThat(afterStart.execution().pendingMarkedAt()).isEqualTo(NOW);
+  }
+
+  @Test
+  void I_a_rescheduled_marked_departure_is_stored_as_no_longer_pending() {
+    UUID tenant = UUID.randomUUID();
+    Departure created = began(tenant, NOW.minus(Duration.ofHours(12)));
+    Departure marked = created.markPending(NOW);
+    assertThat(departures.updateExecution(created, marked)).isTrue();
+    Departure moved = marked.reschedule(NOW.plus(Duration.ofDays(2)), NOW.plus(Duration.ofDays(2)).plus(Duration.ofHours(6)), NOW);
+    assertThat(departures.updateSchedule(marked, moved)).isTrue();
+    Departure read = departures.find(tenant, created.id()).orElseThrow();
+    assertThat(read.execution().pendingRegularization()).isFalse();
+    assertThat(read.execution().pendingMarkedAt()).isEqualTo(NOW);
+  }
+
+  @Test
+  void I_the_open_departures_past_their_end_are_found_oldest_first_across_tenants_and_the_marked_are_skipped() {
+    UUID one = UUID.randomUUID();
+    UUID other = UUID.randomUUID();
+    Departure older = began(one, NOW.minus(Duration.ofDays(5)));
+    Departure newer = began(other, NOW.minus(Duration.ofDays(4)));
+    Departure future = began(one, NOW.plus(Duration.ofDays(1)));
+    Departure closed = began(one, NOW.minus(Duration.ofDays(6)));
+    Departure closedRunning = closed.start(NOW.minus(Duration.ofDays(6)), STARTER, NOW);
+    assertThat(departures.updateExecution(closed, closedRunning)).isTrue();
+    assertThat(departures.updateExecution(closedRunning, closedRunning.finish(NOW.minus(Duration.ofDays(5)), STARTER, NOW, null))).isTrue();
+    List<UUID> found = transaction.run(() -> departures.lockOpenPastEnd(NOW, 500).stream().map(Departure::id).toList());
+    assertThat(found).contains(older.id(), newer.id()).doesNotContain(future.id(), closed.id());
+    assertThat(found.indexOf(older.id())).isLessThan(found.indexOf(newer.id()));
+    assertThat(transaction.run(() -> departures.lockOpenPastEnd(NOW, 1))).hasSize(1);
+    assertThat(departures.updateExecution(older, older.markPending(NOW))).isTrue();
+    assertThat(transaction.run(() -> departures.lockOpenPastEnd(NOW, 500).stream().map(Departure::id).toList()))
+        .contains(newer.id()).doesNotContain(older.id());
+  }
+
+  @Test
+  void I_two_overlapping_asks_never_take_the_same_departure() throws Exception {
+    UUID tenant = UUID.randomUUID();
+    Departure a = began(tenant, NOW.minus(Duration.ofDays(8)));
+    Departure b = began(tenant, NOW.minus(Duration.ofDays(7)));
+    CountDownLatch firstHolds = new CountDownLatch(1);
+    CountDownLatch secondDone = new CountDownLatch(1);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      Future<List<UUID>> first = pool.submit(() -> transaction.run(() -> {
+        List<UUID> mine = departures.lockOpenPastEnd(NOW, 500).stream().filter(d -> d.tenantId().equals(tenant)).map(Departure::id).toList();
+        firstHolds.countDown();
+        try {
+          secondDone.await();
+        } catch (InterruptedException interrupted) {
+          Thread.currentThread().interrupt();
+        }
+        return mine;
+      }));
+      Future<List<UUID>> second = pool.submit(() -> {
+        firstHolds.await();
+        try {
+          return transaction.run(() -> departures.lockOpenPastEnd(NOW, 500).stream().filter(d -> d.tenantId().equals(tenant)).map(Departure::id).toList());
+        } finally {
+          secondDone.countDown();
+        }
+      });
+      assertThat(first.get()).containsExactlyInAnyOrder(a.id(), b.id());
+      assertThat(second.get()).isEmpty();
+    } finally {
+      pool.shutdownNow();
+    }
+  }
+
+  @Test
   void I_a_normal_end_round_trips_without_an_interruption() {
     UUID tenant = UUID.randomUUID();
     Departure created = began(tenant, NOW.minus(Duration.ofHours(3)));

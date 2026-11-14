@@ -119,6 +119,16 @@ final class FakeWorld
   }
 
   @Override
+  public List<Departure> lockOpenPastEnd(Instant now, int limit) {
+    return departures.values().stream()
+        .filter(d -> (d.status() == DepartureStatus.SCHEDULED || d.status() == DepartureStatus.IN_EXECUTION)
+            && !d.execution().pendingRegularization() && !d.estimatedEnd().isAfter(now))
+        .sorted(Comparator.comparing(Departure::estimatedEnd).thenComparing(Departure::id))
+        .limit(limit)
+        .toList();
+  }
+
+  @Override
   public boolean updateExecution(Departure from, Departure to) {
     Departure current = departures.get(from.id());
     if (current == null || !current.tenantId().equals(from.tenantId()) || current.status() != from.status()) {

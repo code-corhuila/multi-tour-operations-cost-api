@@ -8,6 +8,7 @@ import co.edu.corhuila.multi_tour.operations_cost.core.outbox.Page;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 import org.springframework.jdbc.core.simple.JdbcClient;
@@ -89,12 +90,13 @@ public final class JdbcDepartureRepository implements DepartureRepository {
   @Override
   public boolean updateSchedule(Departure from, Departure to) {
     return jdbc.sql("""
-            UPDATE salida SET starts_at = :start, estimated_end_at = :end
+            UPDATE salida SET starts_at = :start, estimated_end_at = :end, pending_regularization = :pending
              WHERE tenant_id = :tenant AND salida_id = :id AND status = 'SCHEDULED'
                AND starts_at = :oldStart AND estimated_end_at = :oldEnd
             """)
         .param("start", utc(to.start()))
         .param("end", utc(to.estimatedEnd()))
+        .param("pending", to.execution().pendingRegularization())
         .param("oldStart", utc(from.start()))
         .param("oldEnd", utc(from.estimatedEnd()))
         .param("tenant", from.tenantId())
@@ -108,7 +110,8 @@ public final class JdbcDepartureRepository implements DepartureRepository {
     DepartureExecution run = to.execution();
     return jdbc.sql("""
             UPDATE salida SET status = :status, actual_start_at = :actualStart, started_by = :startedBy, actual_end_at = :actualEnd,
-                              finished_by = :finishedBy, interrupted = :interrupted, interruption_cause = :cause
+                              finished_by = :finishedBy, interrupted = :interrupted, interruption_cause = :cause,
+                              pending_regularization = :pending, pending_marked_at = :markedAt
              WHERE tenant_id = :tenant AND salida_id = :id AND status = :oldStatus
             """)
         .param("status", to.status().name())
@@ -118,10 +121,27 @@ public final class JdbcDepartureRepository implements DepartureRepository {
         .param("finishedBy", run.finishedBy())
         .param("interrupted", run.interrupted())
         .param("cause", run.interruptionCause())
+        .param("pending", run.pendingRegularization())
+        .param("markedAt", run.pendingMarkedAt() == null ? null : utc(run.pendingMarkedAt()))
         .param("tenant", from.tenantId())
         .param("id", from.id())
         .param("oldStatus", from.status().name())
         .update() == 1;
+  }
+
+  /** The rows stay locked until the transaction ends; SKIP LOCKED leaves to another ask the ones this one holds (api 005 D-03). */
+  @Override
+  public List<Departure> lockOpenPastEnd(Instant now, int limit) {
+    return jdbc.sql(SELECT + """
+             WHERE status IN ('SCHEDULED', 'IN_EXECUTION') AND NOT pending_regularization AND estimated_end_at <= :now
+             ORDER BY estimated_end_at, salida_id
+             LIMIT :limit
+             FOR UPDATE SKIP LOCKED
+            """)
+        .param("now", utc(now))
+        .param("limit", limit)
+        .query(DepartureRow.MAPPER)
+        .list();
   }
 
   @Override
@@ -141,7 +161,8 @@ public final class JdbcDepartureRepository implements DepartureRepository {
 
   private static final String SELECT = """
       SELECT salida_id, tenant_id, code, service_id, starts_at, estimated_end_at, time_zone, status, scheduled_by,
-             scheduled_at, actual_start_at, started_by, actual_end_at, finished_by, interrupted, interruption_cause
+             scheduled_at, actual_start_at, started_by, actual_end_at, finished_by, interrupted, interruption_cause,
+             pending_regularization, pending_marked_at
         FROM salida""";
 
   private static final class DepartureRow {
@@ -162,7 +183,9 @@ public final class JdbcDepartureRepository implements DepartureRepository {
             instant(rs.getObject("actual_end_at", OffsetDateTime.class)),
             rs.getObject("finished_by", UUID.class),
             rs.getBoolean("interrupted"),
-            rs.getString("interruption_cause")));
+            rs.getString("interruption_cause"),
+            rs.getBoolean("pending_regularization"),
+            instant(rs.getObject("pending_marked_at", OffsetDateTime.class))));
   }
 
   private static Instant instant(OffsetDateTime value) {
