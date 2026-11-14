@@ -13,6 +13,7 @@ public interface IdempotencyKeys {
   String SAVE_SERVICES = "saveServices";
   String RECORD_EXTRAORDINARY_CANCELLATION = "recordExtraordinaryCancellation";
   String CANCEL_DEPARTURE = "cancelDeparture";
+  String RECORD_PERSONAL_EMERGENCY = "recordPersonalEmergency";
 
   Optional<UUID> departureOf(UUID tenantId, String operation, String key);
 

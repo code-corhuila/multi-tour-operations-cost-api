@@ -20,7 +20,7 @@ import java.util.function.Supplier;
 
 /** The ports of the departure as in-memory fakes, with a transaction that puts everything back when it fails. */
 final class FakeWorld
-    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, IdGenerator, Vehicles, VehicleKeys, ServiceRecords, OperationalCosts, ExtraordinaryCancellations {
+    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, IdGenerator, Vehicles, VehicleKeys, ServiceRecords, OperationalCosts, ExtraordinaryCancellations, PersonalEmergencies {
 
   final Map<UUID, Departure> departures = new LinkedHashMap<>();
   final List<OutboxEvent> events = new ArrayList<>();
@@ -44,6 +44,8 @@ final class FakeWorld
   final Map<UUID, UUID> servicesRecordedBy = new HashMap<>();
   /** The extraordinary cancellations: departure id, then reservation id. */
   final Map<UUID, Map<UUID, ExtraordinaryCancellation>> cancellationRows = new HashMap<>();
+  /** The personal emergencies: departure id, then reservation id. */
+  final Map<UUID, Map<UUID, PersonalEmergency>> emergencyRows = new HashMap<>();
   /** The cost lines in the order recorded, and the line each key of creation made. */
   final List<OperationalCost> costRows = new ArrayList<>();
   final Map<String, OperationalCost> costKeys = new HashMap<>();
@@ -53,6 +55,7 @@ final class FakeWorld
   private final Map<UUID, Departure> departuresCommittedByOthers = new HashMap<>();
   private final Map<String, UUID> keysCommittedByOthers = new HashMap<>();
   private final Map<UUID, Map<UUID, ExtraordinaryCancellation>> cancellationsCommittedByOthers = new HashMap<>();
+  private final Map<UUID, Map<UUID, PersonalEmergency>> emergenciesCommittedByOthers = new HashMap<>();
   private final List<OutboxEvent> eventsCommittedByOthers = new ArrayList<>();
   int catalogCalls;
   private int ids;
@@ -72,6 +75,8 @@ final class FakeWorld
     serviceRows.forEach((departure, rows) -> servicesBefore.put(departure, new LinkedHashMap<>(rows)));
     Map<UUID, Map<UUID, ExtraordinaryCancellation>> cancellationsBefore = new HashMap<>();
     cancellationRows.forEach((departure, rows) -> cancellationsBefore.put(departure, new LinkedHashMap<>(rows)));
+    Map<UUID, Map<UUID, PersonalEmergency>> emergenciesBefore = new HashMap<>();
+    emergencyRows.forEach((departure, rows) -> emergenciesBefore.put(departure, new LinkedHashMap<>(rows)));
     try {
       return work.get();
     } catch (RuntimeException failed) {
@@ -95,6 +100,9 @@ final class FakeWorld
       cancellationRows.clear();
       cancellationRows.putAll(cancellationsBefore);
       cancellationRows.putAll(cancellationsCommittedByOthers);
+      emergencyRows.clear();
+      emergencyRows.putAll(emergenciesBefore);
+      emergencyRows.putAll(emergenciesCommittedByOthers);
       eventsCommittedByOthers.stream().filter(e -> !events.contains(e)).forEach(events::add);
       costRows.clear();
       costRows.addAll(costsBefore);
@@ -129,6 +137,7 @@ final class FakeWorld
       departuresCommittedByOthers.putAll(departures);
       keysCommittedByOthers.putAll(keys);
       cancellationRows.forEach((departure, rows) -> cancellationsCommittedByOthers.put(departure, new LinkedHashMap<>(rows)));
+      emergencyRows.forEach((departure, rows) -> emergenciesCommittedByOthers.put(departure, new LinkedHashMap<>(rows)));
       eventsCommittedByOthers.addAll(events);
     }
     return find(tenantId, id);
@@ -330,6 +339,21 @@ final class FakeWorld
   @Override
   public List<ExtraordinaryCancellation> cancellationsOf(UUID tenantId, UUID departureId) {
     return List.copyOf(cancellationRows.getOrDefault(departureId, Map.of()).values());
+  }
+
+  @Override
+  public void add(UUID tenantId, UUID departureId, PersonalEmergency emergency) {
+    emergencyRows.computeIfAbsent(departureId, id -> new LinkedHashMap<>()).put(emergency.reservationId(), emergency);
+  }
+
+  @Override
+  public boolean hasEmergency(UUID tenantId, UUID departureId, UUID reservationId) {
+    return emergencyRows.getOrDefault(departureId, Map.of()).containsKey(reservationId);
+  }
+
+  @Override
+  public List<PersonalEmergency> emergenciesOf(UUID tenantId, UUID departureId) {
+    return List.copyOf(emergencyRows.getOrDefault(departureId, Map.of()).values());
   }
 
   @Override

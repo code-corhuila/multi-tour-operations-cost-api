@@ -132,6 +132,13 @@ public record Departure(
     }
   }
 
+  /** A personal emergency is recorded only while the departure runs (RN-OPS-API-90). */
+  public void acceptPersonalEmergency() {
+    if (status != DepartureStatus.IN_EXECUTION) {
+      throw new InvalidStatusTransitionException(status, "have a personal emergency recorded");
+    }
+  }
+
   /**
    * The same departure, now running, with the real start that a person recorded (RN-EJE-001). The state is judged first; the
    * start is never earlier than the scheduled one and never later than the moment it is recorded.
