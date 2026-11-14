@@ -38,7 +38,7 @@ public final class ServicesReader {
 
   /** The same join over reservations that were already read, so a save judges and answers from one reading. */
   public ServicesView join(List<ReservationOfDeparture> held, List<ServiceRecord> recorded) {
-    Map<UUID, ServiceRecord> byReservation = recorded.stream().collect(Collectors.toMap(ServiceRecord::reservationId, Function.identity()));
+    Map<UUID, ServiceRecord> byReservation = recorded.stream().collect(Collectors.toMap(ServiceRecord::reservationId, Function.identity(), (first, again) -> first));
     List<ServicesView.ReservationView> views =
         held.stream().map(r -> new ServicesView.ReservationView(r, Optional.ofNullable(byReservation.get(r.reservationId())))).toList();
     int base = ServiceRecord.realBase(views.stream().flatMap(v -> v.recorded().stream()).toList());

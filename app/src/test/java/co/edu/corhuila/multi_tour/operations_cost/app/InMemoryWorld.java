@@ -13,6 +13,11 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.RegularizeDepar
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.OutboxEvent;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDeparture;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ReservationOfDeparture;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.SaveServices;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecord;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecords;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServicesReader;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Transaction;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.AddDepartureVehicles;
@@ -54,7 +59,7 @@ import org.springframework.context.annotation.Primary;
  * on its own: how the real adapters behave is the business of their own tests (the database, the catalog).
  */
 final class InMemoryWorld
-    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, Vehicles, VehicleKeys {
+    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, Vehicles, VehicleKeys, ServiceRecords {
 
   /** One for the whole test run: the beans of the configuration below are this one. */
   static final InMemoryWorld WORLD = new InMemoryWorld();
@@ -67,7 +72,11 @@ final class InMemoryWorld
   final Map<UUID, Vehicle> vehicleRows = new LinkedHashMap<>();
   final Map<UUID, Set<UUID>> assignments = new HashMap<>();
   final Map<String, UUID> vehicleKeys = new HashMap<>();
+  final Map<UUID, List<ReservationOfDeparture>> reservationRows = new HashMap<>();
+  final Map<UUID, Map<UUID, ServiceRecord>> serviceRows = new HashMap<>();
   volatile boolean reservationsDown;
+  /** Only the reading of the reservations of a departure fails; the seats still answer. */
+  volatile boolean reservationListDown;
   volatile boolean catalogDown;
   volatile int catalogCalls;
 
@@ -79,10 +88,13 @@ final class InMemoryWorld
       vehicleRows.clear();
       assignments.clear();
       vehicleKeys.clear();
+      reservationRows.clear();
+      serviceRows.clear();
       tours.clear();
       catalogDown = false;
       seats.clear();
       reservationsDown = false;
+      reservationListDown = false;
       catalogCalls = 0;
     }
   }
@@ -191,6 +203,25 @@ final class InMemoryWorld
       throw new DependencyUnavailableException("reservations");
     }
     return java.util.Map.copyOf(seats);
+  }
+
+  @Override
+  public List<ReservationOfDeparture> reservationsOf(UUID serviceId, UUID departureId) {
+    if (reservationsDown || reservationListDown) {
+      throw new DependencyUnavailableException("reservations");
+    }
+    return reservationRows.getOrDefault(departureId, List.of());
+  }
+
+  @Override
+  public void saveAll(UUID tenantId, UUID departureId, Collection<ServiceRecord> records, UUID by, Instant at) {
+    Map<UUID, ServiceRecord> rows = serviceRows.computeIfAbsent(departureId, id -> new LinkedHashMap<>());
+    records.forEach(record -> rows.put(record.reservationId(), record));
+  }
+
+  @Override
+  public List<ServiceRecord> recordedFor(UUID tenantId, UUID departureId) {
+    return List.copyOf(serviceRows.getOrDefault(departureId, Map.of()).values());
   }
 
   @Override
@@ -317,8 +348,20 @@ final class InMemoryWorld
 
     @Bean
     @Primary
-    GetDeparture testGetDeparture(DepartureViews views) {
-      return new GetDeparture(WORLD, views);
+    ServicesReader testServicesReader() {
+      return new ServicesReader(WORLD, WORLD);
+    }
+
+    @Bean
+    @Primary
+    GetDeparture testGetDeparture(DepartureViews views, ServicesReader reader) {
+      return new GetDeparture(WORLD, views, reader);
+    }
+
+    @Bean
+    @Primary
+    SaveServices testSaveServices(DepartureViews views, ServicesReader reader) {
+      return new SaveServices(WORLD, WORLD, WORLD, reader, views, WORLD, Clock.systemUTC());
     }
 
     @Bean
