@@ -2,6 +2,7 @@ package co.edu.corhuila.multi_tour.operations_cost.adapters.security;
 
 import co.edu.corhuila.multi_tour.operations_cost.adapters.http.ErrorBody;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Caller;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.ExceptionalAccess;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Role;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.nimbusds.jose.JOSEException;
@@ -20,6 +21,7 @@ import java.util.Date;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
+import java.util.UUID;
 import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -99,11 +101,17 @@ public class JwtAuthFilter extends OncePerRequestFilter {
           || subject.codePoints().anyMatch(JwtAuthFilter::disguises)) {
         return null;
       }
-      // only the marks this service understands pass: `restricted` (it still opens nothing here) and none. The token of a
-      // temporary credential (`password-change`) only serves the route that chooses a password, in the security service
+      // only the marks this service understands pass: `restricted` (it still opens nothing here), the access of the platform to one
+      // tenant (`exceptional`, `emergency`, spec 012) and none. The token of a temporary credential (`password-change`) only serves
+      // the route that chooses a password, in the security service
       String access = claims.getStringClaim("access");
+      ExceptionalAccess exceptional = null;
       if (access != null && !"restricted".equals(access)) {
-        return null;
+        if (!"exceptional".equals(access) && !"emergency".equals(access)) {
+          return null;
+        }
+        List<String> scope = claims.getStringListClaim("scope");
+        exceptional = new ExceptionalAccess(access, scope == null ? Set.of() : Set.copyOf(scope), canonicalUuid(claims.getStringClaim("authorizationId")));
       }
       List<String> names = claims.getStringListClaim("roles");
       Set<Role> roles = EnumSet.noneOf(Role.class);
@@ -112,11 +120,20 @@ public class JwtAuthFilter extends OncePerRequestFilter {
       }
       // absent means none; a claim that is not a list of strings makes the whole token a refusal (it is caught below)
       List<String> granted = claims.getStringListClaim("permissions");
-      return new Caller(subject, claims.getStringClaim("tenantId"), roles, granted == null ? Set.of() : Set.copyOf(granted));
+      return new Caller(subject, claims.getStringClaim("tenantId"), roles, granted == null ? Set.of() : Set.copyOf(granted), exceptional);
     } catch (ParseException | JOSEException | RuntimeException e) {
       // anything a hostile but signed token can provoke is a refusal, never a server error
       return null;
     }
+  }
+
+  /** The id of an access in its canonical 36 characters: the lax parser of the platform would let odd forms reach an audit fact. */
+  private static UUID canonicalUuid(String text) {
+    UUID id = UUID.fromString(text);
+    if (!id.toString().equalsIgnoreCase(text)) {
+      throw new IllegalArgumentException("Not a canonical UUID");
+    }
+    return id;
   }
 
   /** A subject is recorded as the actor of an event, so it cannot hold what disguises a line of the log. */

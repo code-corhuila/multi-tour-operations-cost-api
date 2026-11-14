@@ -3,9 +3,11 @@ package co.edu.corhuila.multi_tour.operations_cost.adapters.security;
 import static org.assertj.core.api.Assertions.assertThat;
 
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Caller;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.ExceptionalAccess;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Permission;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Role;
 import java.util.Set;
+import java.util.UUID;
 import org.junit.jupiter.api.Test;
 
 /** Who opens which route (api 004 RN-OPS-API-46): the decision with no server and no token. */
@@ -99,5 +101,59 @@ class RouteAuthorizationTest {
     for (String uri : new String[] {BASE + "/departures/SAL-001/", BASE + "/departures/sal-001", BASE + "/departures/SAL-1", BASE + "/departures/"}) {
       assertThat(RouteAuthorization.allows("GET", uri, collaborator)).as(uri).isFalse();
     }
+  }
+
+  private static Caller exceptional(String... scope) {
+    return new Caller("root", TENANT, Set.of(Role.PLATFORM_ADMINISTRATOR), Set.of(),
+        new ExceptionalAccess("exceptional", Set.of(scope), UUID.randomUUID()));
+  }
+
+  @Test
+  void A_the_exceptional_token_reads_every_public_route_when_its_scope_has_operations() {
+    Caller who = exceptional("OPERATIONS");
+    assertThat(RouteAuthorization.allows("GET", BASE + "/departures", who)).isTrue();
+    assertThat(RouteAuthorization.allows("GET", BASE + "/departures/SAL-001/costs", who)).isTrue();
+    assertThat(RouteAuthorization.allows("GET", BASE + "/vehicles", who)).isTrue();
+  }
+
+  @Test
+  void C_a_write_with_the_token_is_forbidden() {
+    Caller who = exceptional("OPERATIONS");
+    for (String[] route : EXECUTION_ROUTES) {
+      if (!route[0].equals("GET")) {
+        assertThat(RouteAuthorization.allows(route[0], route[1], who)).as(route[0] + " " + route[1]).isFalse();
+      }
+    }
+    assertThat(RouteAuthorization.allows("POST", BASE + "/vehicles", who)).isFalse();
+    assertThat(RouteAuthorization.allows("DELETE", BASE + "/vehicles", who)).isFalse();
+  }
+
+  @Test
+  void C_a_read_outside_the_scope_is_forbidden() {
+    assertThat(RouteAuthorization.allows("GET", BASE + "/departures", exceptional("CASH", "SENSITIVE"))).isFalse();
+  }
+
+  @Test
+  void C_an_internal_route_is_forbidden() {
+    assertThat(RouteAuthorization.allows("GET", BASE + "/internal/outbox/events", exceptional("OPERATIONS"))).isFalse();
+  }
+
+  @Test
+  void C_a_disguised_path_is_forbidden_to_the_exceptional_token() {
+    assertThat(RouteAuthorization.allows("GET", BASE + "/departures/../internal/outbox/events", exceptional("OPERATIONS"))).isFalse();
+  }
+
+  @Test
+  void A_each_route_has_one_area_or_none() {
+    assertThat(ExceptionalAccessPolicy.areaOf("GET", BASE + "/departures")).contains("OPERATIONS");
+    assertThat(ExceptionalAccessPolicy.areaOf("GET", BASE + "/internal/outbox/events")).isEmpty();
+    assertThat(ExceptionalAccessPolicy.areaOf("GET", "/api/v1/other/departures")).isEmpty();
+    assertThat(ExceptionalAccessPolicy.areaOf("PUT", BASE + "/departures")).isEmpty();
+  }
+
+  @Test
+  void A_the_route_template_hides_the_identifiers() {
+    assertThat(ExceptionalAccessPolicy.template(BASE + "/departures/SAL-014/costs")).isEqualTo(BASE + "/departures/{id}/costs");
+    assertThat(ExceptionalAccessPolicy.template(BASE + "/x/3f2b8c1e-1111-4222-8333-444455556666")).isEqualTo(BASE + "/x/{id}");
   }
 }

@@ -41,6 +41,10 @@ public final class RouteAuthorization implements HandlerInterceptor {
     if (RouteGuard.isDisguised(uri)) {
       return false;
     }
+    if (who.exceptional() != null) {
+      // the mark narrows, never widens: reads inside the scope and nothing else, whatever the role carried (spec 012)
+      return ExceptionalAccessPolicy.areaOf(method, uri).filter(who.exceptional()::covers).isPresent();
+    }
     if (uri.startsWith(INTERNAL)) {
       return who.roles().stream().anyMatch(SERVICES::contains);
     }
