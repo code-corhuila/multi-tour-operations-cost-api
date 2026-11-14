@@ -1,6 +1,7 @@
 package co.edu.corhuila.multi_tour.operations_cost.adapters.security;
 
 import co.edu.corhuila.multi_tour.operations_cost.adapters.http.ErrorBody;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.AccountSessionCutoffs;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Caller;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.ExceptionalAccess;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Role;
@@ -17,11 +18,14 @@ import jakarta.servlet.http.HttpServletResponse;
 import java.io.IOException;
 import java.security.interfaces.RSAPublicKey;
 import java.text.ParseException;
+import java.time.Instant;
 import java.util.Date;
 import java.util.EnumSet;
 import java.util.List;
 import java.util.Set;
 import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.slf4j.MDC;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
@@ -35,7 +39,8 @@ import org.springframework.web.filter.OncePerRequestFilter;
  * Validates the token by itself (norm 5.3): algorithm exactly RS256, signed by the key of the security
  * microservice, {@code exp} and {@code sub} required, 30 s of tolerance. A valid one becomes the
  * {@link Caller} of the request; anything else is a 401 with the single envelope. Which routes need
- * one is decided by {@link RouteGuard}. The cutoff of revoked sessions is not looked up here (declared debt, spec 001 G-S4).
+ * one is decided by {@link RouteGuard}. A token of an account issued before the cutoff of its sessions is a 401 too, and a cutoff that
+ * cannot be read is a 503, never a pass (api spec 013, RN-OPS-API-131 and -133).
  */
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE + 10)
@@ -47,13 +52,20 @@ public class JwtAuthFilter extends OncePerRequestFilter {
   /** What an event keeps of its actor: the subject of the token is recorded as it comes. */
   private static final int MAX_SUBJECT = 100;
 
+  private static final Logger LOG = LoggerFactory.getLogger(JwtAuthFilter.class);
+
   private final RSASSAVerifier verifier;
   private final ObjectMapper mapper;
+  private final AccountSessionCutoffs cutoffs;
 
-  JwtAuthFilter(RSAPublicKey key, ObjectMapper mapper) {
+  JwtAuthFilter(RSAPublicKey key, ObjectMapper mapper, AccountSessionCutoffs cutoffs) {
     this.verifier = new RSASSAVerifier(key);
     this.mapper = mapper;
+    this.cutoffs = cutoffs;
   }
+
+  /** A token that passed the signature, with the instant it was issued at (null when it carries none). */
+  private record Verified(Caller caller, Instant issuedAt) {}
 
   @Override
   protected boolean shouldNotFilter(HttpServletRequest request) {
@@ -64,8 +76,19 @@ public class JwtAuthFilter extends OncePerRequestFilter {
   protected void doFilterInternal(
       HttpServletRequest request, HttpServletResponse response, FilterChain chain)
       throws ServletException, IOException {
-    Caller caller = verified(request.getHeader(HttpHeaders.AUTHORIZATION));
-    if (caller == null) {
+    Verified token = verified(request.getHeader(HttpHeaders.AUTHORIZATION));
+    boolean revoked;
+    try {
+      revoked = token != null && revoked(token);
+    } catch (RuntimeException unreadable) {
+      LOG.error("The cutoff of the sessions could not be read", unreadable);
+      response.setStatus(HttpStatus.SERVICE_UNAVAILABLE.value());
+      response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+      mapper.writeValue(response.getOutputStream(), new ErrorBody("SERVICE_UNAVAILABLE",
+          "A service this operation needs is not available; try again", null, MDC.get("traceId")));
+      return;
+    }
+    if (token == null || revoked) {
       response.setStatus(HttpStatus.UNAUTHORIZED.value());
       response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
       response.setContentType(MediaType.APPLICATION_JSON_VALUE);
@@ -73,12 +96,23 @@ public class JwtAuthFilter extends OncePerRequestFilter {
           response.getOutputStream(), ErrorBody.of(HttpStatus.UNAUTHORIZED, MDC.get("traceId")));
       return;
     }
-    request.setAttribute(CALLER, caller);
+    request.setAttribute(CALLER, token.caller());
     chain.doFilter(request, response);
   }
 
+  /** Whether the sessions of the account of the token were cut after it was issued. A subject that is not an account id has no cutoff. */
+  private boolean revoked(Verified token) {
+    UUID account;
+    try {
+      account = canonicalUuid(token.caller().subject());
+    } catch (IllegalArgumentException notAnAccount) {
+      return false;
+    }
+    return cutoffs.find(account).filter(cutoff -> cutoff.refuses(token.issuedAt())).isPresent();
+  }
+
   /** The caller of a valid token, or null for anything that is not one (a role the service does not know included). */
-  private Caller verified(String authorization) {
+  private Verified verified(String authorization) {
     if (authorization == null || !authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
       return null;
     }
@@ -122,7 +156,9 @@ public class JwtAuthFilter extends OncePerRequestFilter {
       }
       // absent means none; a claim that is not a list of strings makes the whole token a refusal (it is caught below)
       List<String> granted = claims.getStringListClaim("permissions");
-      return new Caller(subject, claims.getStringClaim("tenantId"), roles, granted == null ? Set.of() : Set.copyOf(granted), exceptional);
+      Date issued = claims.getIssueTime();
+      return new Verified(new Caller(subject, claims.getStringClaim("tenantId"), roles, granted == null ? Set.of() : Set.copyOf(granted), exceptional),
+          issued == null ? null : issued.toInstant());
     } catch (ParseException | JOSEException | RuntimeException e) {
       // anything a hostile but signed token can provoke is a refusal, never a server error
       return null;
