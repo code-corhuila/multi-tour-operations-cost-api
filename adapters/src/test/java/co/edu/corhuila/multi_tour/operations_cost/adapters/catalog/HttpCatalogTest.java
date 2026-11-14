@@ -98,6 +98,26 @@ class HttpCatalogTest {
     assertThat(catalog.tour(TOUR)).contains(new CatalogTour(TOUR, CatalogTour.Type.TOUR, false, 12));
   }
 
+  private static String itemWithTransport(String transport) {
+    return item("TOUR", "ACTIVE", "12").replace("\"somethingNew\"", "\"transportRequired\":" + transport + ",\"somethingNew\"");
+  }
+
+  @Test
+  void A_the_transport_flag_is_read_and_a_missing_one_is_false() {
+    body = itemWithTransport("true");
+    assertThat(catalog.tour(TOUR).orElseThrow().transportRequired()).isTrue();
+    body = itemWithTransport("false");
+    assertThat(catalog.tour(TOUR).orElseThrow().transportRequired()).isFalse();
+    body = item("TOUR", "ACTIVE", "12");
+    assertThat(catalog.tour(TOUR).orElseThrow().transportRequired()).isFalse();
+  }
+
+  @Test
+  void A_a_transport_flag_that_is_not_a_boolean_is_not_available() {
+    body = itemWithTransport("\"yes\"");
+    assertThatThrownBy(() -> catalog.tour(TOUR)).isInstanceOf(DependencyUnavailableException.class);
+  }
+
   @Test
   void A_a_capacity_that_is_null_is_zero() {
     body = item("TOUR", "ACTIVE", "null");

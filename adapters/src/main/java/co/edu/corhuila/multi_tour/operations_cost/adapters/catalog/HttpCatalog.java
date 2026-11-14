@@ -87,7 +87,12 @@ public final class HttpCatalog implements Catalog {
     if (capacity == null || !(capacity.isNull() || capacity.isInt() && capacity.asInt() >= 0)) {
       throw new IllegalStateException("configuredCapacity is not what the contract says");
     }
-    return new CatalogTour(serviceId, type, active, capacity.isNull() ? 0 : capacity.asInt());
+    // absent is "no transport"; present, it must be a boolean
+    JsonNode transport = item.get("transportRequired");
+    if (transport != null && !transport.isNull() && !transport.isBoolean()) {
+      throw new IllegalStateException("transportRequired is not what the contract says");
+    }
+    return new CatalogTour(serviceId, type, active, capacity.isNull() ? 0 : capacity.asInt(), transport != null && transport.asBoolean());
   }
 
   private static String text(JsonNode item, String field) {
