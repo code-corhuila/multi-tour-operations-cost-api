@@ -33,6 +33,7 @@ class ProbeController {
   @GetMapping("/api/v1/operations-cost/probe/whoami")
   Map<String, String> whoami(HttpServletRequest request) {
     Caller caller = (Caller) request.getAttribute(JwtAuthFilter.CALLER);
-    return Map.of("subject", caller.subject(), "tenantId", String.valueOf(caller.tenantId()));
+    return Map.of("subject", caller.subject(), "tenantId", String.valueOf(caller.tenantId()),
+        "permissions", caller.permissions().stream().sorted().toList().toString());
   }
 }

@@ -24,9 +24,18 @@ public record Departure(
     String timeZone,
     DepartureStatus status,
     UUID scheduledBy,
-    Instant scheduledAt) {
+    Instant scheduledAt,
+    DepartureExecution execution) {
 
   private static final Pattern CODE = Pattern.compile("SAL-[0-9]{3,6}");
+  private static final int MAX_CAUSE = 1000;
+
+  /** A departure with no execution: the way every one is born, and the reading of one that never ran. */
+  public Departure(
+      UUID id, UUID tenantId, String code, UUID serviceId, Instant start, Instant estimatedEnd, String timeZone,
+      DepartureStatus status, UUID scheduledBy, Instant scheduledAt) {
+    this(id, tenantId, code, serviceId, start, estimatedEnd, timeZone, status, scheduledBy, scheduledAt, DepartureExecution.NONE);
+  }
 
   /** Every way of building a departure, the reading of a stored one included, checks what the engine also checks. */
   public Departure {
@@ -45,6 +54,7 @@ public record Departure(
     require(status != null, "status");
     require(scheduledBy != null, "scheduledBy");
     require(scheduledAt != null, "scheduledAt");
+    require(execution != null, "execution");
   }
 
   /** A new departure: {@code SCHEDULED}, with a start that has not begun (decision D3 of spec 002). */
@@ -74,6 +84,54 @@ public record Departure(
     Departure changed = new Departure(id, tenantId, code, serviceId, newStart, newEnd, timeZone, status, scheduledBy, scheduledAt);
     changed.requireNotBegun(newStart, now);
     return changed;
+  }
+
+  /**
+   * The same departure, now running, with the real start that a person recorded (RN-EJE-001). The state is judged first; the
+   * start is never earlier than the scheduled one and never later than the moment it is recorded.
+   */
+  public Departure start(Instant at, UUID by, Instant now) {
+    Objects.requireNonNull(now, "now");
+    if (status != DepartureStatus.SCHEDULED) {
+      throw new InvalidStatusTransitionException(status, "be started");
+    }
+    Instant actualStart = at == null ? null : at.truncatedTo(ChronoUnit.MICROS);
+    require(actualStart != null, "startedAt");
+    require(by != null, "startedBy");
+    if (actualStart.isBefore(start)) {
+      throw new BusinessRuleViolationException("A departure cannot start before its scheduled start");
+    }
+    if (actualStart.isAfter(now)) {
+      throw new BusinessRuleViolationException("A departure cannot start in the future");
+    }
+    return withExecution(DepartureStatus.IN_EXECUTION, execution.started(actualStart, by));
+  }
+
+  /**
+   * The same departure, now finished, with the real end that a person recorded; a {@code cause} makes it an interruption, which
+   * still ends FINISHED, never CANCELLED (PDR K1). The state is judged first; the end is never earlier than the real start and
+   * never later than the moment it is recorded.
+   */
+  public Departure finish(Instant at, UUID by, Instant now, String cause) {
+    Objects.requireNonNull(now, "now");
+    if (status != DepartureStatus.IN_EXECUTION) {
+      throw new InvalidStatusTransitionException(status, "be finished");
+    }
+    Instant actualEnd = at == null ? null : at.truncatedTo(ChronoUnit.MICROS);
+    require(actualEnd != null, "finishedAt");
+    require(by != null, "finishedBy");
+    require(cause == null || (!cause.isBlank() && cause.length() <= MAX_CAUSE), "cause");
+    if (actualEnd.isBefore(execution.actualStart())) {
+      throw new BusinessRuleViolationException("A departure cannot end before it started");
+    }
+    if (actualEnd.isAfter(now)) {
+      throw new BusinessRuleViolationException("A departure cannot end in the future");
+    }
+    return withExecution(DepartureStatus.FINISHED, execution.finished(actualEnd, by, cause));
+  }
+
+  private Departure withExecution(DepartureStatus newStatus, DepartureExecution newExecution) {
+    return new Departure(id, tenantId, code, serviceId, start, estimatedEnd, timeZone, newStatus, scheduledBy, scheduledAt, newExecution);
   }
 
   public boolean hasSchedule(Instant otherStart, Instant otherEnd) {

@@ -37,7 +37,17 @@ class PostgresRescheduleDepartureTest extends PostgresTest {
   }
 
   private static RescheduleDeparture reschedule(Outbox events, Optional<Reservations.Seats> seats) {
-    return new RescheduleDeparture(departures, events, (service, departure) -> seats,
+    return new RescheduleDeparture(departures, events, new Reservations() {
+          @Override
+          public Optional<Reservations.Seats> seatsOf(UUID service, UUID departure) {
+            return seats;
+          }
+
+          @Override
+          public java.util.Map<UUID, Reservations.Seats> seatsOfTour(UUID service) {
+            return java.util.Map.of();
+          }
+        },
         serviceId -> Optional.empty(), vehicles, transaction, UUID::randomUUID, Clock.tick(Clock.systemUTC(), Duration.ofNanos(1_000)));
   }
 

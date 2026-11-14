@@ -1,8 +1,10 @@
 package co.edu.corhuila.multi_tour.operations_cost.adapters.persistence;
 
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Departure;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureExecution;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureRepository;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureStatus;
+import co.edu.corhuila.multi_tour.operations_cost.core.outbox.Page;
 import java.time.Instant;
 import java.time.OffsetDateTime;
 import java.time.ZoneOffset;
@@ -100,9 +102,46 @@ public final class JdbcDepartureRepository implements DepartureRepository {
         .update() == 1;
   }
 
+  /** The state that was read is the condition: a start or an end decided on a stale reading writes nothing. */
+  @Override
+  public boolean updateExecution(Departure from, Departure to) {
+    DepartureExecution run = to.execution();
+    return jdbc.sql("""
+            UPDATE salida SET status = :status, actual_start_at = :actualStart, started_by = :startedBy, actual_end_at = :actualEnd,
+                              finished_by = :finishedBy, interrupted = :interrupted, interruption_cause = :cause
+             WHERE tenant_id = :tenant AND salida_id = :id AND status = :oldStatus
+            """)
+        .param("status", to.status().name())
+        .param("actualStart", run.actualStart() == null ? null : utc(run.actualStart()))
+        .param("startedBy", run.startedBy())
+        .param("actualEnd", run.actualEnd() == null ? null : utc(run.actualEnd()))
+        .param("finishedBy", run.finishedBy())
+        .param("interrupted", run.interrupted())
+        .param("cause", run.interruptionCause())
+        .param("tenant", from.tenantId())
+        .param("id", from.id())
+        .param("oldStatus", from.status().name())
+        .update() == 1;
+  }
+
+  @Override
+  public Page<Departure> page(UUID tenantId, Optional<DepartureStatus> status, int page, int limit) {
+    String filter = status.isPresent() ? " AND status = :status" : "";
+    var count = jdbc.sql("SELECT count(*) FROM salida WHERE tenant_id = :tenant" + filter).param("tenant", tenantId);
+    var rows = jdbc.sql(SELECT + " WHERE tenant_id = :tenant" + filter + " ORDER BY starts_at DESC, code DESC LIMIT :limit OFFSET :offset")
+        .param("tenant", tenantId)
+        .param("limit", limit)
+        .param("offset", (long) (page - 1) * limit);
+    if (status.isPresent()) {
+      count = count.param("status", status.get().name());
+      rows = rows.param("status", status.get().name());
+    }
+    return new Page<>(rows.query(DepartureRow.MAPPER).list(), page, limit, count.query(Long.class).single());
+  }
+
   private static final String SELECT = """
       SELECT salida_id, tenant_id, code, service_id, starts_at, estimated_end_at, time_zone, status, scheduled_by,
-             scheduled_at
+             scheduled_at, actual_start_at, started_by, actual_end_at, finished_by, interrupted, interruption_cause
         FROM salida""";
 
   private static final class DepartureRow {
@@ -116,7 +155,18 @@ public final class JdbcDepartureRepository implements DepartureRepository {
         rs.getString("time_zone"),
         DepartureStatus.valueOf(rs.getString("status")),
         rs.getObject("scheduled_by", UUID.class),
-        rs.getObject("scheduled_at", OffsetDateTime.class).toInstant());
+        rs.getObject("scheduled_at", OffsetDateTime.class).toInstant(),
+        new DepartureExecution(
+            instant(rs.getObject("actual_start_at", OffsetDateTime.class)),
+            rs.getObject("started_by", UUID.class),
+            instant(rs.getObject("actual_end_at", OffsetDateTime.class)),
+            rs.getObject("finished_by", UUID.class),
+            rs.getBoolean("interrupted"),
+            rs.getString("interruption_cause")));
+  }
+
+  private static Instant instant(OffsetDateTime value) {
+    return value == null ? null : value.toInstant();
   }
 
   private static OffsetDateTime utc(Instant instant) {

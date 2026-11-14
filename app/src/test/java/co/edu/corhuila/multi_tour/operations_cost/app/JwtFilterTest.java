@@ -145,6 +145,23 @@ class JwtFilterTest extends ShellTest {
   }
 
   @Test
+  void C_the_permissions_claim_reaches_the_caller_and_its_absence_is_none() {
+    Response with =
+        given()
+            .header("Authorization", bearer(claims("account-1", 600, ADMIN, TENANT).claim("permissions", List.of("MANAGE_CASH", "MANAGE_DEPARTURE_EXECUTION"))))
+            .get("/api/v1/operations-cost/probe/whoami");
+    assertThat(with.jsonPath().getString("permissions")).isEqualTo("[MANAGE_CASH, MANAGE_DEPARTURE_EXECUTION]");
+    Response without = given().header("Authorization", bearer(claims("account-1", 600, ADMIN, TENANT))).get("/api/v1/operations-cost/probe/whoami");
+    assertThat(without.jsonPath().getString("permissions")).isEqualTo("[]");
+  }
+
+  @Test
+  void C_a_permissions_claim_that_is_not_a_list_of_strings_is_a_refusal() {
+    assertRefused(bearer(claims("account-1", 600, ADMIN, TENANT).claim("permissions", "MANAGE_DEPARTURE_EXECUTION")));
+    assertRefused(bearer(claims("account-1", 600, ADMIN, TENANT).claim("permissions", List.of(1, 2))));
+  }
+
+  @Test
   void C_start_fails_without_the_key() {
     assertThatThrownBy(() -> start(Map.of())).hasStackTraceContaining("JWT_PUBLIC_KEY");
   }

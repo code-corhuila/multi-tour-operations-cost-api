@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Caller;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.Permission;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Role;
 import java.util.Set;
 import org.junit.jupiter.api.Test;
@@ -14,6 +15,16 @@ class CallerTest {
   void D_a_tenant_administrator_carries_its_tenant() {
     Caller caller = new Caller("account-1", "tenant-1", Set.of(Role.TENANT_ADMINISTRATOR));
     assertThat(caller.tenantId()).isEqualTo("tenant-1");
+  }
+
+  @Test
+  void D_a_caller_holds_the_permissions_of_its_token_and_none_by_default() {
+    Caller without = new Caller("account-1", "tenant-1", Set.of(Role.TENANT_ADMINISTRATOR));
+    assertThat(without.permissions()).isEmpty();
+    Caller with = new Caller("account-1", "tenant-1", Set.of(Role.OPERATIONAL_COLLABORATOR), Set.of(Permission.MANAGE_DEPARTURE_EXECUTION));
+    assertThat(with.permissions()).containsExactly("MANAGE_DEPARTURE_EXECUTION");
+    assertThat(with.holds(Permission.MANAGE_DEPARTURE_EXECUTION)).isTrue();
+    assertThat(without.holds(Permission.MANAGE_DEPARTURE_EXECUTION)).isFalse();
   }
 
   @Test

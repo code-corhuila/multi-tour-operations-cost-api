@@ -1,5 +1,6 @@
 package co.edu.corhuila.multi_tour.operations_cost.core.departure;
 
+import co.edu.corhuila.multi_tour.operations_cost.core.outbox.Page;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -28,4 +29,14 @@ public interface DepartureRepository {
    * changed meanwhile, so a change decided on a stale reading is never written and two changes never both win.
    */
   boolean updateSchedule(Departure from, Departure to);
+
+  /**
+   * Replaces the state and the execution that were read ({@code from}) by the new ones ({@code to}), only if the departure still has
+   * the state that was read. False when it is not there or has left that state meanwhile, so two starts (or two ends) of the same
+   * departure never both win.
+   */
+  boolean updateExecution(Departure from, Departure to);
+
+  /** One page of the departures of the tenant, most recent scheduled start first, optionally of one state. */
+  Page<Departure> page(UUID tenantId, Optional<DepartureStatus> status, int page, int limit);
 }
