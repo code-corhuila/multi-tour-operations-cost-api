@@ -210,4 +210,28 @@ class HttpCatalogTest {
     assertThatThrownBy(() -> new HttpCatalog(" ", Duration.ofSeconds(3), null)).isInstanceOf(IllegalStateException.class)
         .hasMessageContaining("COMMERCIAL_RESERVATION_BASE_URL");
   }
+
+  private static String itemWithCost(String cost) {
+    return item("TOUR", "ACTIVE", "12").replace("\"somethingNew\"", "\"baseOperationalCostCents\":" + cost + ",\"somethingNew\"");
+  }
+
+  @Test
+  void A_the_catalogued_cost_is_read_when_it_is_there_and_absent_null_or_not_above_zero_means_none() {
+    body = itemWithCost("21000000");
+    assertThat(catalog.tour(TOUR).orElseThrow().baseOperationalCostCents()).contains(21_000_000L);
+    body = item("TOUR", "ACTIVE", "12");
+    assertThat(catalog.tour(TOUR).orElseThrow().baseOperationalCostCents()).isEmpty();
+    body = itemWithCost("null");
+    assertThat(catalog.tour(TOUR).orElseThrow().baseOperationalCostCents()).isEmpty();
+    body = itemWithCost("0");
+    assertThat(catalog.tour(TOUR).orElseThrow().baseOperationalCostCents()).isEmpty();
+  }
+
+  @Test
+  void A_a_catalogued_cost_that_is_not_an_integer_is_not_available() {
+    for (String bad : new String[] {"\"21000000\"", "1.5", "true", "{\"a\":1}", "99999999999999999999"}) {
+      body = itemWithCost(bad);
+      assertThatThrownBy(() -> catalog.tour(TOUR)).isInstanceOf(DependencyUnavailableException.class);
+    }
+  }
 }
