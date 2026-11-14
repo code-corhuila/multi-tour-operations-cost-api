@@ -4,6 +4,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.BusinessRuleViolationException;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.Cancellation;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Departure;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.InvalidStatusTransitionException;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
@@ -110,7 +111,7 @@ class PostgresRescheduleDepartureTest extends PostgresTest {
   void I_the_update_is_refused_once_the_departure_is_no_longer_scheduled() {
     UUID tenant = UUID.randomUUID();
     Departure created = scheduled(tenant);
-    jdbc.sql("UPDATE salida SET status = 'CANCELLED' WHERE salida_id = :id").param("id", created.id()).update();
+    assertThat(departures.updateExecution(created, created.cancel(Cancellation.Cause.NOT_ATTRIBUTABLE_TO_CUSTOMER, null, null, Instant.now()))).isTrue();
     // a change decided on a stale reading (it was still SCHEDULED) writes nothing
     Departure stale = created.reschedule(START.plusSeconds(3600), END.plusSeconds(3600), Instant.now());
     assertThat(departures.updateSchedule(created, stale)).isFalse();

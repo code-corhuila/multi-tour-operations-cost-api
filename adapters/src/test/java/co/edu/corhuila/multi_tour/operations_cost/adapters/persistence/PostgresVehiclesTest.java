@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.AddDepartureVehicles;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.BusinessRuleViolationException;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.CatalogTour;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.Cancellation;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Departure;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureStatus;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DuplicateKeyException;
@@ -43,12 +44,19 @@ class PostgresVehiclesTest extends PostgresTest {
   }
 
   private static Departure departure(UUID tenant, String code, Instant start, Instant end, DepartureStatus status) {
-    Departure created = new Departure(UUID.randomUUID(), tenant, code, TOUR, start, end, "America/Bogota", status, ACCOUNT, Instant.now());
+    // a cancelled departure is made the way the service makes it: scheduled first, then cancelled (the engine refuses a cancelled one without its instant)
+    Departure created = new Departure(UUID.randomUUID(), tenant, code, TOUR, start, end, "America/Bogota",
+        status == DepartureStatus.CANCELLED ? DepartureStatus.SCHEDULED : status, ACCOUNT, Instant.now());
     transaction.run(() -> {
       departures.save(created);
       return null;
     });
-    return created;
+    if (status != DepartureStatus.CANCELLED) {
+      return created;
+    }
+    Departure cancelled = created.cancel(Cancellation.Cause.NOT_ATTRIBUTABLE_TO_CUSTOMER, null, null, Instant.now());
+    assertThat(departures.updateExecution(created, cancelled)).isTrue();
+    return cancelled;
   }
 
   private static void assign(Departure departure, Vehicle... vehicle) {

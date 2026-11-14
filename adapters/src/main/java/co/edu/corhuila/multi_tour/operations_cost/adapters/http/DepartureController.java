@@ -131,9 +131,8 @@ class DepartureController {
   record FinishRequest(Instant finishedAt, String result, String cause) {}
 
   /**
-   * The body of {@code regularizeDeparture}: the result, the real hours and what the result needs. {@code notCarriedOutCause} is in the
-   * contract and is accepted but not read: {@code NOT_CARRIED_OUT} is refused until HU-OPS-006 (which needs it), and leaving it out would
-   * make the service refuse a body the contract allows.
+   * The body of {@code regularizeDeparture}: the result, the real hours and what the result needs; {@code notCarriedOutCause} is the
+   * written reason of {@code NOT_CARRIED_OUT}.
    */
   record RegularizeRequest(
       String result, Instant actualStart, Instant actualEnd, String earlyStartReason, String interruption, String notCarriedOutCause) {}
@@ -287,7 +286,7 @@ class DepartureController {
     Caller caller = (Caller) request.getAttribute(JwtAuthFilter.CALLER);
     RegularizeDeparture.Regularized done = regularizeDeparture.execute(new RegularizeDeparture.Command(
         caller, departureCode, idempotencyKey, result, body.actualStart(), body.actualEnd(), body.earlyStartReason(), body.interruption(),
-        MDC.get("traceId")));
+        body.notCarriedOutCause(), MDC.get("traceId")));
     return recorded(done.view(), done.recorded());
   }
 
