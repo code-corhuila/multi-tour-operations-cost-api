@@ -100,6 +100,13 @@ class RecordPersonalEmergencyTest {
   }
 
   @Test
+  void A_the_answer_lists_the_emergencies_of_the_departure() {
+    RecordPersonalEmergency.Recorded result = record.execute(command("SAL-001", R1, KEY, 2, DETAIL));
+    assertThat(result.emergencies()).extracting(PersonalEmergency::reservationId).containsExactly(R1);
+    assertThat(record.execute(command("SAL-001", R1, KEY, 2, DETAIL)).emergencies()).hasSize(1);
+  }
+
+  @Test
   void A_the_reservation_is_never_written() {
     record.execute(command("SAL-001", R1, KEY, 2, DETAIL));
     assertThat(world.reservationRows.get(running.id())).hasSize(3);

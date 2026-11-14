@@ -38,7 +38,7 @@ class ReadDeparturesTest {
     world.tours.put(OTHER_TOUR, new CatalogTour(OTHER_TOUR, CatalogTour.Type.TOUR, true, 6, false));
     DepartureViews views = new DepartureViews(world, world, world);
     list = new ListDepartures(world, views);
-    get = new GetDeparture(world, views, new ServicesReader(world, world, world));
+    get = new GetDeparture(world, views, new ServicesReader(world, world, world), world);
   }
 
   private Departure put(int n, UUID tour, DepartureStatus status, UUID tenant, int daysFromNow) {
@@ -65,6 +65,16 @@ class ReadDeparturesTest {
     assertThat(found.data().get(0).booked()).isEqualTo(4);
     assertThat(found.data().get(0).capacity()).isEqualTo(18);
     assertThat(found.data().get(1).booked()).isZero();
+  }
+
+  @Test
+  void A_a_departure_answers_its_personal_emergencies_and_another_tenants_are_not_listed() {
+    Departure mine = put(1, TOUR, DepartureStatus.IN_EXECUTION, TENANT, 0);
+    UUID reservation = new UUID(0, 0x101);
+    world.emergencyRows.put(mine.id(), new java.util.LinkedHashMap<>(java.util.Map.of(reservation, new PersonalEmergency(reservation, 2, "a traveler fainted", ACCOUNT, NOW))));
+    assertThat(get.execute(new GetDeparture.Query(person, "SAL-001")).emergencies()).extracting(PersonalEmergency::reservationId).containsExactly(reservation);
+    put(2, TOUR, DepartureStatus.IN_EXECUTION, TENANT, 0);
+    assertThat(get.execute(new GetDeparture.Query(person, "SAL-002")).emergencies()).isEmpty();
   }
 
   @Test

@@ -8,6 +8,7 @@ import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutbo
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOperationalCosts;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutboxEvents;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcExtraordinaryCancellations;
+import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcPersonalEmergencies;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcServiceRecords;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcTransaction;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicleKeys;
@@ -37,7 +38,9 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordCost;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.SaveServices;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ExtraordinaryCancellations;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.PersonalEmergencies;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordExtraordinaryCancellation;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordPersonalEmergency;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecords;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServicesReader;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
@@ -131,6 +134,11 @@ class CompositionRoot {
   @Bean
   ExtraordinaryCancellations extraordinaryCancellations(JdbcClient jdbc) {
     return new JdbcExtraordinaryCancellations(jdbc);
+  }
+
+  @Bean
+  PersonalEmergencies personalEmergencies(JdbcClient jdbc) {
+    return new JdbcPersonalEmergencies(jdbc);
   }
 
   @Bean
@@ -236,8 +244,8 @@ class CompositionRoot {
   }
 
   @Bean
-  GetDeparture getDeparture(DepartureRepository departures, DepartureViews views, ServicesReader services) {
-    return new GetDeparture(departures, views, services);
+  GetDeparture getDeparture(DepartureRepository departures, DepartureViews views, ServicesReader services, PersonalEmergencies emergencies) {
+    return new GetDeparture(departures, views, services, emergencies);
   }
 
   @Bean
@@ -257,6 +265,13 @@ class CompositionRoot {
       DepartureRepository departures, ServiceRecords records, ExtraordinaryCancellations cancellations, IdempotencyKeys keys, ServicesReader reader,
       DepartureViews views, Transaction transaction, Clock clock) {
     return new SaveServices(departures, records, cancellations, keys, reader, views, transaction, clock);
+  }
+
+  @Bean
+  RecordPersonalEmergency recordPersonalEmergency(
+      DepartureRepository departures, PersonalEmergencies emergencies, Outbox outbox, IdempotencyKeys keys, Reservations reservations, DepartureViews views,
+      IdGenerator ids, Transaction transaction, Clock clock) {
+    return new RecordPersonalEmergency(departures, emergencies, outbox, keys, reservations, views, ids, transaction, clock);
   }
 
   @Bean

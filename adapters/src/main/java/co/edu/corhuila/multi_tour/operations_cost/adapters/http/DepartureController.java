@@ -10,7 +10,9 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureView;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.FinishDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.GetDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ExtraordinaryCancellation;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.PersonalEmergency;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordExtraordinaryCancellation;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.RecordPersonalEmergency;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.SaveServices;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceRecord;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ServiceResult;
@@ -67,7 +69,7 @@ class DepartureController {
       String code, UUID serviceId, String status, Instant scheduledStart, Instant scheduledEnd, int capacity, int booked, int tourCapacity,
       int vehicleCapacity, boolean transportRequired, boolean pendingRegularization, boolean startAlert, Instant actualStart, Instant actualEnd,
       boolean interrupted, String interruptionCause, List<VehicleResponse> vehicles, Integer travelersServed,
-      List<ReservationResponse> reservations, DepartureCancellationResponse cancellation) {
+      List<ReservationResponse> reservations, DepartureCancellationResponse cancellation, List<NoveltyResponse> novelties) {
 
     /** The answers of scheduling, rescheduling and adding vehicles: they do not read the seats held, so they say 0. */
     static DepartureResponse of(Departure departure, int tourCapacity, boolean transportRequired, List<Vehicle> vehicles, Instant now) {
@@ -81,7 +83,7 @@ class DepartureController {
       return new DepartureResponse(departure.code(), departure.serviceId(), departure.status().name(), departure.start(), departure.estimatedEnd(),
           view.capacity(), view.booked(), view.tourCapacity(), view.vehicleCapacity(), view.transportRequired(),
           run.pendingRegularization(), departure.startAlert(now), run.actualStart(), run.actualEnd(), run.interrupted(), run.interruptionCause(),
-          view.vehicles().stream().map(VehicleResponse::of).toList(), null, null, DepartureCancellationResponse.of(run.cancellation()));
+          view.vehicles().stream().map(VehicleResponse::of).toList(), null, null, DepartureCancellationResponse.of(run.cancellation()), null);
     }
 
     /** The same, with the reservations of the departure and what each received. */
@@ -93,9 +95,29 @@ class DepartureController {
       return new DepartureResponse(plain.code(), plain.serviceId(), plain.status(), plain.scheduledStart(), plain.scheduledEnd(), plain.capacity(),
           plain.booked(), plain.tourCapacity(), plain.vehicleCapacity(), plain.transportRequired(), plain.pendingRegularization(), plain.startAlert(),
           plain.actualStart(), plain.actualEnd(), plain.interrupted(), plain.interruptionCause(), plain.vehicles(), services.get().travelersServed(),
-          services.get().reservations().stream().map(ReservationResponse::of).toList(), plain.cancellation());
+          services.get().reservations().stream().map(ReservationResponse::of).toList(), plain.cancellation(), plain.novelties());
+    }
+
+    /** The same, with the personal emergencies of the departure: the list is empty, not absent, once the service answers them. */
+    DepartureResponse withNovelties(List<PersonalEmergency> emergencies) {
+      return new DepartureResponse(code, serviceId, status, scheduledStart, scheduledEnd, capacity, booked, tourCapacity, vehicleCapacity, transportRequired,
+          pendingRegularization, startAlert, actualStart, actualEnd, interrupted, interruptionCause, vehicles, travelersServed, reservations, cancellation,
+          emergencies.stream().map(NoveltyResponse::of).toList());
     }
   }
+
+  /** A personal emergency of the departure (HU-OPS-008): when, who recorded it (the account id), the reservation, the travelers and the detail. */
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  record NoveltyResponse(Instant at, String type, String detail, String who, UUID reservationId, Integer affected) {
+
+    static NoveltyResponse of(PersonalEmergency emergency) {
+      return new NoveltyResponse(emergency.recordedAt(), RecordPersonalEmergency.PERSONAL_EMERGENCY, emergency.detail(), emergency.recordedBy().toString(),
+          emergency.reservationId(), emergency.affected());
+    }
+  }
+
+  /** The body of {@code registerNovelty}: whether the values are good is judged by the core. */
+  record RegisterNoveltyRequest(String reservationId, String type, String detail, Integer affected) {}
 
   /** The cancellation of the departure (HU-OPS-006): when, by whom when a person did, why and, for one not carried out, the reason. */
   @JsonInclude(JsonInclude.Include.NON_NULL)
@@ -176,12 +198,14 @@ class DepartureController {
   private final RegularizeDeparture regularizeDeparture;
   private final SaveServices saveServices;
   private final RecordExtraordinaryCancellation recordCancellation;
+  private final RecordPersonalEmergency recordPersonalEmergency;
   private final Clock clock;
 
   DepartureController(
       ScheduleDeparture scheduleDeparture, RescheduleDeparture rescheduleDeparture, AddDepartureVehicles addDepartureVehicles,
       ListDepartures listDepartures, GetDeparture getDeparture, StartDeparture startDeparture, FinishDeparture finishDeparture,
-      RegularizeDeparture regularizeDeparture, SaveServices saveServices, RecordExtraordinaryCancellation recordCancellation, Clock clock) {
+      RegularizeDeparture regularizeDeparture, SaveServices saveServices, RecordExtraordinaryCancellation recordCancellation,
+      RecordPersonalEmergency recordPersonalEmergency, Clock clock) {
     this.scheduleDeparture = scheduleDeparture;
     this.rescheduleDeparture = rescheduleDeparture;
     this.addDepartureVehicles = addDepartureVehicles;
@@ -192,6 +216,7 @@ class DepartureController {
     this.regularizeDeparture = regularizeDeparture;
     this.saveServices = saveServices;
     this.recordCancellation = recordCancellation;
+    this.recordPersonalEmergency = recordPersonalEmergency;
     this.clock = clock;
   }
 
@@ -217,7 +242,9 @@ class DepartureController {
     requireCode(departureCode);
     Caller caller = (Caller) request.getAttribute(JwtAuthFilter.CALLER);
     GetDeparture.Found found = getDeparture.execute(new GetDeparture.Query(caller, departureCode));
-    return DepartureResponse.of(found.view(), found.services(), clock.instant());
+    DepartureResponse response = DepartureResponse.of(found.view(), found.services(), clock.instant());
+    // the detail of an emergency can name health facts: the platform reads a tenant without it, under an exceptional access (PDR C4)
+    return caller.exceptional() == null ? response.withNovelties(found.emergencies()) : response;
   }
 
   @PostMapping(path = "/departures/{departureCode}/services", consumes = "application/json")
@@ -244,6 +271,20 @@ class DepartureController {
     RecordExtraordinaryCancellation.Recorded recorded = recordCancellation.execute(
         new RecordExtraordinaryCancellation.Command(caller, departureCode, reservationId, idempotencyKey, body.justification(), MDC.get("traceId")));
     DepartureResponse response = DepartureResponse.of(recorded.view(), recorded.services(), clock.instant());
+    return recorded.recorded()
+        ? ResponseEntity.status(HttpStatus.CREATED).location(URI.create(DEPARTURES + "/" + recorded.view().departure().code())).body(response)
+        : ResponseEntity.ok(response);
+  }
+
+  @PostMapping(path = "/departures/{departureCode}/novelties", consumes = "application/json")
+  ResponseEntity<DepartureResponse> registerNovelty(
+      HttpServletRequest request, @PathVariable String departureCode,
+      @RequestHeader(name = "Idempotency-Key", required = false) String idempotencyKey, @RequestBody RegisterNoveltyRequest body) {
+    requireCode(departureCode);
+    Caller caller = (Caller) request.getAttribute(JwtAuthFilter.CALLER);
+    RecordPersonalEmergency.Recorded recorded = recordPersonalEmergency.execute(new RecordPersonalEmergency.Command(
+        caller, departureCode, body.reservationId(), body.type(), idempotencyKey, body.detail(), body.affected(), MDC.get("traceId")));
+    DepartureResponse response = DepartureResponse.of(recorded.view(), clock.instant()).withNovelties(recorded.emergencies());
     return recorded.recorded()
         ? ResponseEntity.status(HttpStatus.CREATED).location(URI.create(DEPARTURES + "/" + recorded.view().departure().code())).body(response)
         : ResponseEntity.ok(response);
