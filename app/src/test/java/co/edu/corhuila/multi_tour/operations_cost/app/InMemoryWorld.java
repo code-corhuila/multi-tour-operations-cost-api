@@ -149,13 +149,13 @@ final class InMemoryWorld
   }
 
   @Override
-  public Optional<UUID> departureOf(UUID tenantId, String key) {
-    return Optional.ofNullable(keys.get(tenantId + "/" + key));
+  public Optional<UUID> departureOf(UUID tenantId, String operation, String key) {
+    return Optional.ofNullable(keys.get(tenantId + "/" + operation + "/" + key));
   }
 
   @Override
-  public void register(UUID tenantId, String key, UUID departureId) {
-    if (keys.putIfAbsent(tenantId + "/" + key, departureId) != null) {
+  public void register(UUID tenantId, String operation, String key, UUID departureId) {
+    if (keys.putIfAbsent(tenantId + "/" + operation + "/" + key, departureId) != null) {
       throw new DuplicateKeyException();
     }
   }
