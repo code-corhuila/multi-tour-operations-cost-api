@@ -1,6 +1,7 @@
 package co.edu.corhuila.multi_tour.operations_cost.adapters.http;
 
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.BusinessRuleViolationException;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureNotFoundException;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DependencyUnavailableException;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.InvalidDataException;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.InvalidStatusTransitionException;
@@ -75,6 +76,12 @@ public class ApiExceptionHandler extends ResponseEntityExceptionHandler {
   @ExceptionHandler(InvalidStatusTransitionException.class)
   ResponseEntity<Object> invalidTransition(InvalidStatusTransitionException e) {
     return answer(HttpStatus.UNPROCESSABLE_ENTITY, "INVALID_STATUS_TRANSITION", e.getMessage(), null);
+  }
+
+  /** Another tenant's departure is the same as none: the answer does not tell them apart. */
+  @ExceptionHandler(DepartureNotFoundException.class)
+  ResponseEntity<Object> departureNotFound(DepartureNotFoundException e) {
+    return answer(HttpStatus.NOT_FOUND, "NOT_FOUND", e.getMessage(), null);
   }
 
   @ExceptionHandler(CallerNotAllowedException.class)

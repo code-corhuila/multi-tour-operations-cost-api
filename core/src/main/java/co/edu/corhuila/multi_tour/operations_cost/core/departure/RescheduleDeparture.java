@@ -9,9 +9,10 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Changes the start and the estimated end of a departure (HU-OPS-001, AC3 and AC4). What the request itself can get wrong, the
- * state of the departure and the clock are judged first, with nobody asked; the same values are no change and ask nothing; only
- * then are the seats held read from commercial-reservation, before the transaction opens, and the dates and the event are written
+ * Changes the start and the estimated end of a departure (HU-OPS-001, AC3 and AC4). First the departure is found for the tenant
+ * (another tenant's is "not found", whatever the dates say); then its state, the shape of the dates and the clock are judged with
+ * nobody asked, so a departure that is not {@code SCHEDULED} is refused as a transition before its dates are looked at; the same
+ * values are no change and ask nothing; only then are the seats held read from commercial-reservation, before the transaction opens, and the dates and the event are written
  * together. A departure with reservations is never changed (AC4): the way out is to cancel it and schedule a new one (HU-OPS-006).
  *
  * <p>Residual risk, declared: the seats are read from another service before the transaction, so a reservation made between that

@@ -7,8 +7,8 @@ info:
     only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
     differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
     service and tested apart), `Departure` flattened without `actualStart`, `actualEnd`, `mark` and the typed lists, and the
-    error body defined here instead of in `_shared.yaml`. The design contract
-    lives in `multi-tour-docs`. Operations offered: `getHealth`, `scheduleDeparture`.
+    error body defined here instead of in `_shared.yaml`; in `rescheduleDeparture` the sentence about the overlap of vehicles (HU-OPS-002, not built), the tags and the extensions `x-hu` and `x-permission` are left out. The `booked` of an answer is always 0 until the reservations of a departure are read for it (HU-OPS-003). The design contract
+    lives in `multi-tour-docs`. Operations offered: `getHealth`, `scheduleDeparture`, `rescheduleDeparture`.
 paths:
   /health:
     get:
@@ -73,8 +73,53 @@ paths:
           $ref: '#/components/responses/InternalError'
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/departures/{departureCode}/schedule:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    put:
+      operationId: rescheduleDeparture
+      summary: Change the date or the time of a scheduled departure (HU-OPS-001, RN-SAL-001)
+      description: |
+        Replaces the start and the estimated end of a departure that is `SCHEDULED` and has no reservations (AC3), keeping its code
+        and its state. A departure with reservations is never changed: `422 BUSINESS_RULE_VIOLATION` (AC4). A departure that is
+        not `SCHEDULED` is `422 INVALID_STATUS_TRANSITION`. Setting what is already set answers `200` and records nothing. A
+        departure of another tenant is `404`. **Requires:** `TENANT_ADMINISTRATOR`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RescheduleDepartureRequest'
+      responses:
+        '200':
+          description: The departure as it is now
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
 components:
   parameters:
+    DepartureCode:
+      name: departureCode
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^SAL-[0-9]{3,6}$'
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -107,6 +152,17 @@ components:
     DepartureStatus:
       type: string
       enum: [SCHEDULED, IN_EXECUTION, PENDING_REGULARIZATION, FINISHED, CANCELLED]
+    RescheduleDepartureRequest:
+      type: object
+      required: [scheduledStart, scheduledEnd]
+      additionalProperties: false
+      properties:
+        scheduledStart:
+          type: string
+          format: date-time
+        scheduledEnd:
+          type: string
+          format: date-time
     ScheduleDepartureRequest:
       type: object
       required: [serviceId, scheduledStart, scheduledEnd, timeZone]
@@ -186,6 +242,12 @@ components:
             $ref: '#/components/schemas/ErrorResponse'
     InternalError:
       description: Internal error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: There is no such departure for the tenant of the token
       content:
         application/json:
           schema:
