@@ -20,7 +20,7 @@ import java.util.function.Supplier;
 
 /** The ports of the departure as in-memory fakes, with a transaction that puts everything back when it fails. */
 final class FakeWorld
-    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, IdGenerator, Vehicles, VehicleKeys, ServiceRecords {
+    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, IdGenerator, Vehicles, VehicleKeys, ServiceRecords, OperationalCosts {
 
   final Map<UUID, Departure> departures = new LinkedHashMap<>();
   final List<OutboxEvent> events = new ArrayList<>();
@@ -42,6 +42,9 @@ final class FakeWorld
   /** What was recorded: departure id, then reservation id. */
   final Map<UUID, Map<UUID, ServiceRecord>> serviceRows = new HashMap<>();
   final Map<UUID, UUID> servicesRecordedBy = new HashMap<>();
+  /** The cost lines in the order recorded, and the line each key of creation made. */
+  final List<OperationalCost> costRows = new ArrayList<>();
+  final Map<String, OperationalCost> costKeys = new HashMap<>();
   UUID racedDeparture;
   private final Map<String, UUID> committedByOthers = new HashMap<>();
   // what another request committed while this one waited for the lock: a rollback of this one must not undo it
@@ -59,6 +62,8 @@ final class FakeWorld
     Map<UUID, Set<UUID>> assignmentsBefore = new HashMap<>();
     assignments.forEach((departure, ids) -> assignmentsBefore.put(departure, new LinkedHashSet<>(ids)));
     Map<String, UUID> vehicleKeysBefore = new HashMap<>(vehicleKeys);
+    List<OperationalCost> costsBefore = new ArrayList<>(costRows);
+    Map<String, OperationalCost> costKeysBefore = new HashMap<>(costKeys);
     Map<UUID, Map<UUID, ServiceRecord>> servicesBefore = new HashMap<>();
     serviceRows.forEach((departure, rows) -> servicesBefore.put(departure, new LinkedHashMap<>(rows)));
     try {
@@ -81,6 +86,10 @@ final class FakeWorld
       vehicleKeys.putAll(vehicleKeysBefore);
       serviceRows.clear();
       serviceRows.putAll(servicesBefore);
+      costRows.clear();
+      costRows.addAll(costsBefore);
+      costKeys.clear();
+      costKeys.putAll(costKeysBefore);
       throw failed;
     }
   }
@@ -289,6 +298,26 @@ final class FakeWorld
   @Override
   public List<ServiceRecord> recordedFor(UUID tenantId, UUID departureId) {
     return List.copyOf(serviceRows.getOrDefault(departureId, Map.of()).values());
+  }
+
+  @Override
+  public void add(OperationalCost cost, String idempotencyKey) {
+    String key = cost.tenantId() + "/" + idempotencyKey;
+    if (costKeys.containsKey(key)) {
+      throw new DuplicateKeyException();
+    }
+    costRows.add(cost);
+    costKeys.put(key, cost);
+  }
+
+  @Override
+  public Optional<OperationalCost> findByKey(UUID tenantId, String idempotencyKey) {
+    return Optional.ofNullable(costKeys.get(tenantId + "/" + idempotencyKey));
+  }
+
+  @Override
+  public List<OperationalCost> costsOf(UUID tenantId, UUID departureId) {
+    return costRows.stream().filter(c -> c.tenantId().equals(tenantId) && c.departureId().equals(departureId)).toList();
   }
 
   @Override
