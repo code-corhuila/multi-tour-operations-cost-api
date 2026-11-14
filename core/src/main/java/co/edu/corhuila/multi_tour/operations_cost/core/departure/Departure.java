@@ -93,6 +93,24 @@ public record Departure(
     return changed;
   }
 
+  /**
+   * The same departure, cancelled for good (HU-OPS-006, api spec 010 RN-OPS-API-80, -81, -88). Only a {@code SCHEDULED} one is cancelled
+   * and a cancelled one stays so: the state is judged first. A departure that was not carried out is also a marked one that nobody started
+   * (the regularization of PDR section 16), and its reason is written by a person.
+   */
+  public Departure cancel(Cancellation.Cause cause, String reason, UUID by, Instant now) {
+    Objects.requireNonNull(now, "now");
+    if (status != DepartureStatus.SCHEDULED) {
+      throw new InvalidStatusTransitionException(status, "be cancelled");
+    }
+    if (cause == Cancellation.Cause.NOT_CARRIED_OUT && !execution.pendingRegularization()) {
+      throw new InvalidStatusTransitionException(status, "be cancelled as not carried out");
+    }
+    Cancellation cancellation = new Cancellation(now, by, cause, reason);
+    return new Departure(id, tenantId, code, serviceId, start, estimatedEnd, timeZone, DepartureStatus.CANCELLED, scheduledBy, scheduledAt,
+        execution.cancelled(cancellation));
+  }
+
   /** An operational cost is recorded once the execution started: while it runs or after it ended (RN-OPS-API-70). */
   public void acceptCosts() {
     if (status != DepartureStatus.IN_EXECUTION && status != DepartureStatus.FINISHED) {
