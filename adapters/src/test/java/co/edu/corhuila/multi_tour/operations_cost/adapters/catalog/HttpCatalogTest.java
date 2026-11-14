@@ -154,6 +154,8 @@ class HttpCatalogTest {
   @Test
   void A_a_slow_catalog_is_not_available_and_does_not_wait_longer_than_the_limit() {
     body = item("TOUR", "ACTIVE", "12");
+    // one fast call first, so the bound measures the timeout and not the cold start of the first HTTP call of the JVM
+    assertThat(catalog.tour(TOUR)).isPresent();
     delayMillis = 1500;
     long began = System.nanoTime();
     assertThatThrownBy(() -> catalog.tour(TOUR)).isInstanceOf(DependencyUnavailableException.class);
