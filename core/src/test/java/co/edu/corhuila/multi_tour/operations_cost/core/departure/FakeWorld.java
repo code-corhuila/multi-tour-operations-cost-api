@@ -20,7 +20,7 @@ import java.util.function.Supplier;
 
 /** The ports of the departure as in-memory fakes, with a transaction that puts everything back when it fails. */
 final class FakeWorld
-    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, IdGenerator, Vehicles, VehicleKeys {
+    implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, IdGenerator, Vehicles, VehicleKeys, ServiceRecords {
 
   final Map<UUID, Departure> departures = new LinkedHashMap<>();
   final List<OutboxEvent> events = new ArrayList<>();
@@ -37,6 +37,11 @@ final class FakeWorld
   final Map<UUID, Set<UUID>> assignments = new HashMap<>();
   final Map<String, UUID> vehicleKeys = new HashMap<>();
   boolean outboxFails;
+  /** The reservations commercial-reservation holds for a departure, by departure id. */
+  final Map<UUID, List<ReservationOfDeparture>> reservationRows = new HashMap<>();
+  /** What was recorded: departure id, then reservation id. */
+  final Map<UUID, Map<UUID, ServiceRecord>> serviceRows = new HashMap<>();
+  final Map<UUID, UUID> servicesRecordedBy = new HashMap<>();
   UUID racedDeparture;
   private final Map<String, UUID> committedByOthers = new HashMap<>();
   // what another request committed while this one waited for the lock: a rollback of this one must not undo it
@@ -54,6 +59,8 @@ final class FakeWorld
     Map<UUID, Set<UUID>> assignmentsBefore = new HashMap<>();
     assignments.forEach((departure, ids) -> assignmentsBefore.put(departure, new LinkedHashSet<>(ids)));
     Map<String, UUID> vehicleKeysBefore = new HashMap<>(vehicleKeys);
+    Map<UUID, Map<UUID, ServiceRecord>> servicesBefore = new HashMap<>();
+    serviceRows.forEach((departure, rows) -> servicesBefore.put(departure, new LinkedHashMap<>(rows)));
     try {
       return work.get();
     } catch (RuntimeException failed) {
@@ -72,6 +79,8 @@ final class FakeWorld
       assignments.putAll(assignmentsBefore);
       vehicleKeys.clear();
       vehicleKeys.putAll(vehicleKeysBefore);
+      serviceRows.clear();
+      serviceRows.putAll(servicesBefore);
       throw failed;
     }
   }
@@ -259,6 +268,27 @@ final class FakeWorld
   @Override
   public void registerVehicle(UUID tenantId, String key, UUID vehicleId) {
     vehicleKeys.put(tenantId + "/" + key, vehicleId);
+  }
+
+  @Override
+  public List<ReservationOfDeparture> reservationsOf(UUID serviceId, UUID departureId) {
+    reservationCalls++;
+    if (reservationsDown) {
+      throw new DependencyUnavailableException("reservations");
+    }
+    return reservationRows.getOrDefault(departureId, List.of());
+  }
+
+  @Override
+  public void saveAll(UUID tenantId, UUID departureId, Collection<ServiceRecord> records, UUID by, Instant at) {
+    Map<UUID, ServiceRecord> rows = serviceRows.computeIfAbsent(departureId, id -> new LinkedHashMap<>());
+    records.forEach(record -> rows.put(record.reservationId(), record));
+    servicesRecordedBy.put(departureId, by);
+  }
+
+  @Override
+  public List<ServiceRecord> recordedFor(UUID tenantId, UUID departureId) {
+    return List.copyOf(serviceRows.getOrDefault(departureId, Map.of()).values());
   }
 
   @Override
