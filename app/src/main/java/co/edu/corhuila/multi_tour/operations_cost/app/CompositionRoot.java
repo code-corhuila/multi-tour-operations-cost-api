@@ -13,6 +13,7 @@ import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcTrans
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicleKeys;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicles;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.AddDepartureVehicles;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.CancelDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.PreviewVehicleChange;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ReplaceDepartureVehicles;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureViews;
@@ -277,6 +278,12 @@ class CompositionRoot {
       DepartureRepository departures, Outbox outbox, IdempotencyKeys keys, DepartureViews views, Transaction transaction, IdGenerator ids,
       Clock clock) {
     return new FinishDeparture(departures, outbox, keys, views, transaction, ids, clock);
+  }
+
+  @Bean
+  CancelDeparture cancelDeparture(
+      DepartureRepository departures, Outbox outbox, IdempotencyKeys keys, IdGenerator ids, Transaction transaction, Clock clock) {
+    return new CancelDeparture(departures, outbox, keys, ids, transaction, clock);
   }
 
   @Bean

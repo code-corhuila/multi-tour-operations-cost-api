@@ -1,14 +1,14 @@
 openapi: 3.0.3
 info:
   title: Multi Tour — operations-cost (the operations built so far)
-  version: 0.10.0
+  version: 0.11.0
   description: |
     The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.10.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
     only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
     differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
     service and tested apart), `Departure` flattened without `mark` and the typed lists, and the
     error body, the paging parameters and the paging meta defined here instead of in `_shared.yaml`; in `rescheduleDeparture` and `recordExtraordinaryCancellation` the tags and the extensions `x-hu` and `x-permission` are left out. Since 0.5.0 (HU-OPS-003 part A) `booked` of the list, of the reading and of the start and the end is the seats held that commercial-reservation keeps; the answers of scheduling, rescheduling and adding vehicles still answer 0. The mark of pending regularization is the field `pendingRegularization`, always `false` until part B. The design contract
-    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Since 0.8.0 (HU-OPS-007) it adds `recordCost` and `listCosts`. Since 0.9.0 (HU-OPS-002 part B) it adds the two internal routes of the saga, `previewVehicleChange` and `replaceDepartureVehicles`. Since 0.10.0 (HU-OPS-005) it adds `recordExtraordinaryCancellation` and the cancellation of each reservation in `getDeparture`. Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `previewVehicleChange`, `replaceDepartureVehicles`, `recordExtraordinaryCancellation`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
+    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Since 0.8.0 (HU-OPS-007) it adds `recordCost` and `listCosts`. Since 0.9.0 (HU-OPS-002 part B) it adds the two internal routes of the saga, `previewVehicleChange` and `replaceDepartureVehicles`. Since 0.10.0 (HU-OPS-005) it adds `recordExtraordinaryCancellation` and the cancellation of each reservation in `getDeparture`. Since 0.11.0 (HU-OPS-006) it adds the internal route `cancelDeparture`, the result `NOT_CARRIED_OUT` of `regularizeDeparture` and the `cancellation` of a departure. Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `previewVehicleChange`, `replaceDepartureVehicles`, `cancelDeparture`, `recordExtraordinaryCancellation`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
 paths:
   /health:
     get:
@@ -445,9 +445,10 @@ paths:
         Only a `SCHEDULED` departure with `pendingRegularization` true (another state is `422 INVALID_STATUS_TRANSITION`; a marked
         `IN_EXECUTION` one is closed with `finishDeparture`). `EXECUTED` and `INTERRUPTED` need `actualStart` and `actualEnd`;
         `INTERRUPTED` also needs `interruption`; a start earlier than scheduled needs `earlyStartReason` and a reason with a later
-        start is `400`. A start later than now, or an end before the start or later than now, is `422 BUSINESS_RULE_VIOLATION`, and so
-        is `NOT_CARRIED_OUT` until HU-OPS-006. Writes `SalidaExecutionStarted` and `SalidaFinalized`. A repeat with the same
-        `Idempotency-Key` answers `200`. **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+        start is `400`. A start later than now, or an end before the start or later than now, is `422 BUSINESS_RULE_VIOLATION`.
+        Writes `SalidaExecutionStarted` and `SalidaFinalized`. `NOT_CARRIED_OUT` needs `notCarriedOutCause` (1 to 500 characters, `400`
+        otherwise), takes no hours, no interruption and no early start reason, cancels the departure and writes `SalidaCancelled`
+        instead. A repeat with the same `Idempotency-Key` answers `200`. **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
       parameters:
         - $ref: '#/components/parameters/IdempotencyKey'
       requestBody:
@@ -854,6 +855,51 @@ paths:
         '503':
           $ref: '#/components/responses/ServiceUnavailable'
 
+  /api/v1/operations-cost/internal/tenants/{tenantId}/departures/{departureCode}/cancellation:
+    post:
+      tags: [Internal]
+      operationId: cancelDeparture
+      summary: Cancel a scheduled departure (HU-OPS-006, saga `cancel-departure` step 1)
+      description: |
+        Cancels a `SCHEDULED` departure for a cause not attributable to the customer and answers its id and the instant of the cancellation,
+        which the saga sends on to `commercial-reservation`. Idempotent by state: a departure already `CANCELLED` answers its original
+        instant, whatever the `Idempotency-Key`, and writes nothing (CA-029: a cancellation is never undone nor doubled). A departure that
+        is `IN_EXECUTION` or `FINISHED` is `422 INVALID_STATUS_TRANSITION`. `requestedByRole` `OPERATIONAL_COLLABORATOR` is `403` for a
+        departure that is not marked as pending regularization. It does not look at the state of the tenant, so a departure of an inactive
+        tenant is cancelled. A departure of another tenant is `404`. Writes `SalidaCancelled` in the same transaction.
+        **Requires:** `SERVICE` role.
+      x-hu: HU-OPS-006
+      x-permission: SERVICE
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+        - $ref: '#/components/parameters/DepartureCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelDepartureRequest'
+      responses:
+        '200':
+          description: Cancelled now or before; the original instant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelDepartureAnswer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/v1/operations-cost/internal/outbox/{eventId}/published:
     parameters:
       - $ref: '#/components/parameters/EventIdPath'
@@ -1107,6 +1153,52 @@ components:
           items:
             type: string
             format: uuid
+    CancelDepartureRequest:
+      type: object
+      description: '`requestedBy` is the account of the person who asked, absent when job 3 asked (the system)'
+      additionalProperties: false
+      required: [cause]
+      properties:
+        cause:
+          type: string
+          enum: [NOT_ATTRIBUTABLE_TO_CUSTOMER]
+        requestedBy:
+          type: string
+          format: uuid
+        requestedByRole:
+          type: string
+          enum: [TENANT_ADMINISTRATOR, OPERATIONAL_COLLABORATOR]
+          description: Optional; the saga may send it (gap G-API6-1)
+    CancelDepartureAnswer:
+      type: object
+      additionalProperties: false
+      required: [departureId, cancelledAt]
+      properties:
+        departureId:
+          type: string
+          format: uuid
+        cancelledAt:
+          type: string
+          format: date-time
+    DepartureCancellation:
+      type: object
+      description: Present once the departure is `CANCELLED`; `cancelledBy` is absent when the system cancelled it
+      additionalProperties: false
+      required: [cancelledAt, cause]
+      properties:
+        cancelledAt:
+          type: string
+          format: date-time
+        cancelledBy:
+          type: string
+          format: uuid
+        cause:
+          type: string
+          enum: [NOT_ATTRIBUTABLE_TO_CUSTOMER, NOT_CARRIED_OUT]
+        reason:
+          type: string
+          maxLength: 500
+          description: The written cause of a regularization as not performed
     VehicleChangePreview:
       type: object
       required: [departureId, currentEffectiveCapacity, newEffectiveCapacity]
@@ -1147,6 +1239,8 @@ components:
         pendingRegularization:
           type: boolean
           description: Since 0.5.0, the mark of a departure past its estimated end with no closing (PDR section 16); set by job 3 since 0.6.0 and cleared when a person starts or finishes the departure
+        cancellation:
+          $ref: '#/components/schemas/DepartureCancellation'
         startAlert:
           type: boolean
           description: Since 0.6.0, true while the departure is `SCHEDULED` and its scheduled start has passed; derived by the service, never stored
@@ -1371,19 +1465,18 @@ components:
     RegularizeRequest:
       type: object
       additionalProperties: false
-      required: [result, actualStart]
+      required: [result]
       properties:
         result:
           type: string
           enum: [EXECUTED, INTERRUPTED, NOT_CARRIED_OUT]
-          description: '`NOT_CARRIED_OUT` is refused until HU-OPS-006'
         actualStart:
           type: string
           format: date-time
         actualEnd:
           type: string
           format: date-time
-          description: Required for `EXECUTED` and `INTERRUPTED`
+          description: Required for `EXECUTED` and `INTERRUPTED`, not sent for `NOT_CARRIED_OUT`
         earlyStartReason:
           type: string
           maxLength: 500
@@ -1393,7 +1486,9 @@ components:
           description: Required for `INTERRUPTED`, and not allowed for `EXECUTED`
         notCarriedOutCause:
           type: string
+          minLength: 1
           maxLength: 500
+          description: Required for `NOT_CARRIED_OUT` and not allowed for another result
     FinishRequest:
       type: object
       additionalProperties: false

@@ -118,6 +118,43 @@ class RegularizeDepartureRouteTest extends ShellTest {
   }
 
   @Test
+  void C_not_carried_out_cancels_the_departure_and_answers_who_when_and_why() {
+    Map<String, Object> request = body("NOT_CARRIED_OUT", null, null);
+    request.put("notCarriedOutCause", "Nobody came to the meeting point");
+    Response response = send(administrator(), KEY, request, true);
+    assertThat(response.statusCode()).isEqualTo(201);
+    assertThat(response.header("Location")).endsWith(DEPARTURES + "/SAL-001");
+    assertThat(response.jsonPath().getString("status")).isEqualTo("CANCELLED");
+    assertThat(response.jsonPath().getBoolean("pendingRegularization")).isFalse();
+    assertThat(response.jsonPath().getString("cancellation.cause")).isEqualTo("NOT_CARRIED_OUT");
+    assertThat(response.jsonPath().getString("cancellation.reason")).isEqualTo("Nobody came to the meeting point");
+    assertThat(response.jsonPath().getString("cancellation.cancelledBy")).isEqualTo(ACCOUNT.toString());
+    assertThat(response.jsonPath().getString("cancellation.cancelledAt")).isNotBlank();
+    assertThat(world.events).extracting(e -> e.eventType()).containsExactly("SalidaCancelled");
+    Response again = send(administrator(), KEY, request, true);
+    assertThat(again.statusCode()).isEqualTo(200);
+    assertThat(again.jsonPath().getString("cancellation.cancelledAt")).isEqualTo(response.jsonPath().getString("cancellation.cancelledAt"));
+    assertThat(world.events).hasSize(1);
+  }
+
+  @Test
+  void C_not_carried_out_without_a_valid_reason_is_400_and_of_an_unmarked_departure_422() {
+    assertError(send(administrator(), KEY, body("NOT_CARRIED_OUT", null, null), false), 400, "VALIDATION_ERROR");
+    Map<String, Object> blank = body("NOT_CARRIED_OUT", null, null);
+    blank.put("notCarriedOutCause", " ");
+    assertError(send(administrator(), KEY, blank, false), 400, "VALIDATION_ERROR");
+    Map<String, Object> long501 = body("NOT_CARRIED_OUT", null, null);
+    long501.put("notCarriedOutCause", "r".repeat(501));
+    assertError(send(administrator(), KEY, long501, false), 400, "VALIDATION_ERROR");
+    put(2, TENANT, false);
+    Map<String, Object> valid = body("NOT_CARRIED_OUT", null, null);
+    valid.put("notCarriedOutCause", "Nobody came");
+    Response unmarked = as(administrator()).filter(Contract.filter()).header("Idempotency-Key", KEY).body(valid).post(DEPARTURES + "/SAL-002/regularization");
+    assertError(unmarked, 422, "INVALID_STATUS_TRANSITION");
+    assertThat(world.events).isEmpty();
+  }
+
+  @Test
   void C_the_same_key_again_answers_200_with_the_departure_already_regularized() {
     send(administrator(), KEY, body("EXECUTED", START, END), true);
     Response again = send(administrator(), KEY, body("EXECUTED", START, END), true);

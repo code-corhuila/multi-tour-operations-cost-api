@@ -2,6 +2,7 @@ package co.edu.corhuila.multi_tour.operations_cost.adapters.http;
 
 import co.edu.corhuila.multi_tour.operations_cost.adapters.security.JwtAuthFilter;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.AddDepartureVehicles;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.Cancellation;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Departure;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureExecution;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureStatus;
@@ -66,7 +67,7 @@ class DepartureController {
       String code, UUID serviceId, String status, Instant scheduledStart, Instant scheduledEnd, int capacity, int booked, int tourCapacity,
       int vehicleCapacity, boolean transportRequired, boolean pendingRegularization, boolean startAlert, Instant actualStart, Instant actualEnd,
       boolean interrupted, String interruptionCause, List<VehicleResponse> vehicles, Integer travelersServed,
-      List<ReservationResponse> reservations) {
+      List<ReservationResponse> reservations, DepartureCancellationResponse cancellation) {
 
     /** The answers of scheduling, rescheduling and adding vehicles: they do not read the seats held, so they say 0. */
     static DepartureResponse of(Departure departure, int tourCapacity, boolean transportRequired, List<Vehicle> vehicles, Instant now) {
@@ -80,7 +81,7 @@ class DepartureController {
       return new DepartureResponse(departure.code(), departure.serviceId(), departure.status().name(), departure.start(), departure.estimatedEnd(),
           view.capacity(), view.booked(), view.tourCapacity(), view.vehicleCapacity(), view.transportRequired(),
           run.pendingRegularization(), departure.startAlert(now), run.actualStart(), run.actualEnd(), run.interrupted(), run.interruptionCause(),
-          view.vehicles().stream().map(VehicleResponse::of).toList(), null, null);
+          view.vehicles().stream().map(VehicleResponse::of).toList(), null, null, DepartureCancellationResponse.of(run.cancellation()));
     }
 
     /** The same, with the reservations of the departure and what each received. */
@@ -92,7 +93,17 @@ class DepartureController {
       return new DepartureResponse(plain.code(), plain.serviceId(), plain.status(), plain.scheduledStart(), plain.scheduledEnd(), plain.capacity(),
           plain.booked(), plain.tourCapacity(), plain.vehicleCapacity(), plain.transportRequired(), plain.pendingRegularization(), plain.startAlert(),
           plain.actualStart(), plain.actualEnd(), plain.interrupted(), plain.interruptionCause(), plain.vehicles(), services.get().travelersServed(),
-          services.get().reservations().stream().map(ReservationResponse::of).toList());
+          services.get().reservations().stream().map(ReservationResponse::of).toList(), plain.cancellation());
+    }
+  }
+
+  /** The cancellation of the departure (HU-OPS-006): when, by whom when a person did, why and, for one not carried out, the reason. */
+  @JsonInclude(JsonInclude.Include.NON_NULL)
+  record DepartureCancellationResponse(Instant cancelledAt, UUID cancelledBy, String cause, String reason) {
+
+    static DepartureCancellationResponse of(Cancellation cancellation) {
+      return cancellation == null ? null
+          : new DepartureCancellationResponse(cancellation.at(), cancellation.by(), cancellation.cause().name(), cancellation.reason());
     }
   }
 
