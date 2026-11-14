@@ -148,6 +148,81 @@ class DepartureTest {
     assertThat(changed.execution().pendingMarkedAt()).isEqualTo(END.plusSeconds(1));
   }
 
+  private static Departure markedScheduled() {
+    return inState(DepartureStatus.SCHEDULED).markPending(END.plusSeconds(1));
+  }
+
+  @Test
+  void D_regularize_as_executed_finishes_the_departure_with_the_real_hours_and_who_and_when() {
+    Instant now = END.plus(Duration.ofHours(1));
+    Departure done = markedScheduled().regularize(START.plusSeconds(60), END.minusSeconds(60), null, null, ACCOUNT, now);
+    assertThat(done.status()).isEqualTo(DepartureStatus.FINISHED);
+    DepartureExecution run = done.execution();
+    assertThat(run.actualStart()).isEqualTo(START.plusSeconds(60));
+    assertThat(run.actualEnd()).isEqualTo(END.minusSeconds(60));
+    assertThat(run.startedBy()).isEqualTo(ACCOUNT);
+    assertThat(run.finishedBy()).isEqualTo(ACCOUNT);
+    assertThat(run.interrupted()).isFalse();
+    assertThat(run.pendingRegularization()).isFalse();
+    assertThat(run.pendingMarkedAt()).isEqualTo(END.plusSeconds(1));
+    assertThat(run.regularizedBy()).isEqualTo(ACCOUNT);
+    assertThat(run.regularizedAt()).isEqualTo(now);
+    assertThat(run.earlyStartReason()).isNull();
+  }
+
+  @Test
+  void D_regularize_as_interrupted_keeps_the_cause_and_still_finishes() {
+    Departure done = markedScheduled().regularize(START, END, "Heavy rain", null, ACCOUNT, END.plus(Duration.ofHours(1)));
+    assertThat(done.status()).isEqualTo(DepartureStatus.FINISHED);
+    assertThat(done.execution().interrupted()).isTrue();
+    assertThat(done.execution().interruptionCause()).isEqualTo("Heavy rain");
+    assertThatThrownBy(() -> markedScheduled().regularize(START, END, " ", null, ACCOUNT, END.plus(Duration.ofHours(1))))
+        .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("cause"));
+  }
+
+  @Test
+  void D_an_early_start_needs_its_reason_and_a_reason_needs_an_early_start() {
+    Instant now = END.plus(Duration.ofHours(1));
+    Instant early = START.minusSeconds(600);
+    assertThatThrownBy(() -> markedScheduled().regularize(early, END, null, null, ACCOUNT, now))
+        .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("earlyStartReason"));
+    assertThatThrownBy(() -> markedScheduled().regularize(early, END, null, " ", ACCOUNT, now)).isInstanceOf(InvalidDataException.class);
+    assertThatThrownBy(() -> markedScheduled().regularize(early, END, null, "x".repeat(501), ACCOUNT, now)).isInstanceOf(InvalidDataException.class);
+    assertThat(markedScheduled().regularize(early, END, null, "Left early because of the weather", ACCOUNT, now).execution().earlyStartReason())
+        .isEqualTo("Left early because of the weather");
+    assertThat(markedScheduled().regularize(early, END, null, "x".repeat(500), ACCOUNT, now).execution().actualStart()).isEqualTo(early);
+    assertThatThrownBy(() -> markedScheduled().regularize(START, END, null, "Not needed", ACCOUNT, now))
+        .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("earlyStartReason"));
+  }
+
+  @Test
+  void D_the_real_hours_are_never_in_the_future_nor_out_of_order() {
+    Instant now = END.plus(Duration.ofHours(1));
+    assertThatThrownBy(() -> markedScheduled().regularize(now.plusSeconds(1), now.plusSeconds(2), null, null, ACCOUNT, now))
+        .isInstanceOf(BusinessRuleViolationException.class);
+    assertThatThrownBy(() -> markedScheduled().regularize(START, START.minusSeconds(1), null, null, ACCOUNT, now))
+        .isInstanceOf(BusinessRuleViolationException.class);
+    assertThatThrownBy(() -> markedScheduled().regularize(START, now.plusSeconds(1), null, null, ACCOUNT, now))
+        .isInstanceOf(BusinessRuleViolationException.class);
+    assertThat(markedScheduled().regularize(START, START, null, null, ACCOUNT, now).execution().actualEnd()).isEqualTo(START);
+    assertThatThrownBy(() -> markedScheduled().regularize(null, END, null, null, ACCOUNT, now))
+        .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("actualStart"));
+    assertThatThrownBy(() -> markedScheduled().regularize(START, null, null, null, ACCOUNT, now))
+        .isInstanceOfSatisfying(InvalidDataException.class, e -> assertThat(e.field()).isEqualTo("actualEnd"));
+  }
+
+  @Test
+  void D_regularize_only_from_scheduled_and_marked() {
+    Instant now = END.plus(Duration.ofHours(1));
+    assertThatThrownBy(() -> inState(DepartureStatus.SCHEDULED).regularize(START, END, null, null, ACCOUNT, now))
+        .isInstanceOf(InvalidStatusTransitionException.class);
+    Departure runningMarked = inState(DepartureStatus.SCHEDULED).start(START, ACCOUNT, START).markPending(END.plusSeconds(1));
+    assertThatThrownBy(() -> runningMarked.regularize(START, END, null, null, ACCOUNT, now)).isInstanceOf(InvalidStatusTransitionException.class);
+    for (DepartureStatus status : new DepartureStatus[] {DepartureStatus.FINISHED, DepartureStatus.CANCELLED}) {
+      assertThatThrownBy(() -> inState(status).regularize(START, END, null, null, ACCOUNT, now)).isInstanceOf(InvalidStatusTransitionException.class);
+    }
+  }
+
   @Test
   void D_reschedule_only_when_scheduled() {
     for (DepartureStatus status : new DepartureStatus[] {DepartureStatus.IN_EXECUTION, DepartureStatus.FINISHED, DepartureStatus.CANCELLED}) {

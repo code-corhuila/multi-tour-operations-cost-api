@@ -21,6 +21,7 @@ import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdGenerator;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdempotencyKeys;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.MarkPendingRegularization;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.RegularizeDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RescheduleDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Reservations;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.ScheduleDeparture;
@@ -198,6 +199,13 @@ class CompositionRoot {
       DepartureRepository departures, Outbox outbox, IdempotencyKeys keys, DepartureViews views, Transaction transaction, IdGenerator ids,
       Clock clock) {
     return new FinishDeparture(departures, outbox, keys, views, transaction, ids, clock);
+  }
+
+  @Bean
+  RegularizeDeparture regularizeDeparture(
+      DepartureRepository departures, Outbox outbox, IdempotencyKeys keys, DepartureViews views, Transaction transaction, IdGenerator ids,
+      Clock clock) {
+    return new RegularizeDeparture(departures, outbox, keys, views, transaction, ids, clock);
   }
 
   @Bean

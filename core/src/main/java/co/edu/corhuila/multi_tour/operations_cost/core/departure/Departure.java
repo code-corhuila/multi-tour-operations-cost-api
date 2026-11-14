@@ -29,6 +29,7 @@ public record Departure(
 
   private static final Pattern CODE = Pattern.compile("SAL-[0-9]{3,6}");
   private static final int MAX_CAUSE = 1000;
+  private static final int MAX_EARLY_REASON = 500;
 
   /** A departure with no execution: the way every one is born, and the reading of one that never ran. */
   public Departure(
@@ -154,6 +155,39 @@ public record Departure(
       throw new BusinessRuleViolationException("A departure is marked only after its estimated end");
     }
     return withExecution(status, execution.marked(now));
+  }
+
+  /**
+   * The same departure, finished by a regularization: a person records what happened in a departure that nobody started and whose
+   * estimated end passed (PDR section 16, L4). Only a {@code SCHEDULED} departure that is marked is regularized. A real start earlier
+   * than the scheduled one needs its reason and is only evidence: the scheduled hours still govern every deadline (FINAL-006); a
+   * reason with a start that is not earlier is refused. A {@code cause} makes it an interruption, which still ends FINISHED. The
+   * hours are never in the future and the end is never before the start.
+   */
+  public Departure regularize(Instant actualStart, Instant actualEnd, String cause, String earlyStartReason, UUID by, Instant now) {
+    Objects.requireNonNull(now, "now");
+    if (status != DepartureStatus.SCHEDULED || !execution.pendingRegularization()) {
+      throw new InvalidStatusTransitionException(status, "be regularized");
+    }
+    Instant begun = actualStart == null ? null : actualStart.truncatedTo(ChronoUnit.MICROS);
+    Instant ended = actualEnd == null ? null : actualEnd.truncatedTo(ChronoUnit.MICROS);
+    require(begun != null, "actualStart");
+    require(ended != null, "actualEnd");
+    require(by != null, "regularizedBy");
+    require(cause == null || (!cause.isBlank() && cause.length() <= MAX_CAUSE), "cause");
+    boolean early = begun.isBefore(start);
+    require(early == (earlyStartReason != null), "earlyStartReason");
+    require(earlyStartReason == null || (!earlyStartReason.isBlank() && earlyStartReason.length() <= MAX_EARLY_REASON), "earlyStartReason");
+    if (begun.isAfter(now)) {
+      throw new BusinessRuleViolationException("A departure cannot start in the future");
+    }
+    if (ended.isBefore(begun)) {
+      throw new BusinessRuleViolationException("A departure cannot end before it started");
+    }
+    if (ended.isAfter(now)) {
+      throw new BusinessRuleViolationException("A departure cannot end in the future");
+    }
+    return withExecution(DepartureStatus.FINISHED, execution.regularized(begun, ended, cause, earlyStartReason, by, now.truncatedTo(ChronoUnit.MICROS)));
   }
 
   /** The alert of RN-EJE-001: still scheduled when its scheduled start has arrived. Derived for each answer, never stored. */

@@ -138,6 +138,50 @@ class PostgresDepartureExecutionTest extends PostgresTest {
   }
 
   @Test
+  void I_a_regularization_is_stored_with_who_when_and_the_early_start_reason() {
+    UUID tenant = UUID.randomUUID();
+    Departure created = began(tenant, NOW.minus(Duration.ofDays(1)));
+    Departure marked = created.markPending(NOW.minus(Duration.ofHours(10)));
+    assertThat(departures.updateExecution(created, marked)).isTrue();
+    Departure done = marked.regularize(created.start().minusSeconds(300), created.estimatedEnd(), "Rain", "Left early", STARTER, NOW);
+    assertThat(departures.updateExecution(marked, done)).isTrue();
+    Departure read = departures.find(tenant, created.id()).orElseThrow();
+    assertThat(read).isEqualTo(done);
+    assertThat(read.status()).isEqualTo(DepartureStatus.FINISHED);
+    assertThat(read.execution().regularizedBy()).isEqualTo(STARTER);
+    assertThat(read.execution().regularizedAt()).isEqualTo(NOW);
+    assertThat(read.execution().earlyStartReason()).isEqualTo("Left early");
+    assertThat(read.execution().pendingRegularization()).isFalse();
+    assertThat(read.execution().pendingMarkedAt()).isEqualTo(NOW.minus(Duration.ofHours(10)));
+  }
+
+  @Test
+  void I_two_regularizations_at_once_only_one_wins() throws Exception {
+    UUID tenant = UUID.randomUUID();
+    Departure created = began(tenant, NOW.minus(Duration.ofDays(1)));
+    Departure marked = created.markPending(NOW.minus(Duration.ofHours(10)));
+    assertThat(departures.updateExecution(created, marked)).isTrue();
+    Departure a = marked.regularize(created.start(), created.estimatedEnd(), null, null, STARTER, NOW);
+    Departure b = marked.regularize(created.start(), created.estimatedEnd(), "Rain", null, FINISHER, NOW);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      CountDownLatch go = new CountDownLatch(1);
+      Future<Boolean> first = pool.submit(() -> {
+        go.await();
+        return departures.updateExecution(marked, a);
+      });
+      Future<Boolean> second = pool.submit(() -> {
+        go.await();
+        return departures.updateExecution(marked, b);
+      });
+      go.countDown();
+      assertThat(List.of(first.get(), second.get())).containsExactlyInAnyOrder(true, false);
+    } finally {
+      pool.shutdownNow();
+    }
+  }
+
+  @Test
   void I_the_open_departures_past_their_end_are_found_oldest_first_across_tenants_and_the_marked_are_skipped() {
     UUID one = UUID.randomUUID();
     UUID other = UUID.randomUUID();

@@ -111,7 +111,8 @@ public final class JdbcDepartureRepository implements DepartureRepository {
     return jdbc.sql("""
             UPDATE salida SET status = :status, actual_start_at = :actualStart, started_by = :startedBy, actual_end_at = :actualEnd,
                               finished_by = :finishedBy, interrupted = :interrupted, interruption_cause = :cause,
-                              pending_regularization = :pending, pending_marked_at = :markedAt
+                              pending_regularization = :pending, pending_marked_at = :markedAt, regularized_by = :regularizedBy,
+                              regularized_at = :regularizedAt, early_start_reason = :earlyReason
              WHERE tenant_id = :tenant AND salida_id = :id AND status = :oldStatus
             """)
         .param("status", to.status().name())
@@ -123,6 +124,9 @@ public final class JdbcDepartureRepository implements DepartureRepository {
         .param("cause", run.interruptionCause())
         .param("pending", run.pendingRegularization())
         .param("markedAt", run.pendingMarkedAt() == null ? null : utc(run.pendingMarkedAt()))
+        .param("regularizedBy", run.regularizedBy())
+        .param("regularizedAt", run.regularizedAt() == null ? null : utc(run.regularizedAt()))
+        .param("earlyReason", run.earlyStartReason())
         .param("tenant", from.tenantId())
         .param("id", from.id())
         .param("oldStatus", from.status().name())
@@ -162,7 +166,7 @@ public final class JdbcDepartureRepository implements DepartureRepository {
   private static final String SELECT = """
       SELECT salida_id, tenant_id, code, service_id, starts_at, estimated_end_at, time_zone, status, scheduled_by,
              scheduled_at, actual_start_at, started_by, actual_end_at, finished_by, interrupted, interruption_cause,
-             pending_regularization, pending_marked_at
+             pending_regularization, pending_marked_at, regularized_by, regularized_at, early_start_reason
         FROM salida""";
 
   private static final class DepartureRow {
@@ -185,7 +189,10 @@ public final class JdbcDepartureRepository implements DepartureRepository {
             rs.getBoolean("interrupted"),
             rs.getString("interruption_cause"),
             rs.getBoolean("pending_regularization"),
-            instant(rs.getObject("pending_marked_at", OffsetDateTime.class))));
+            instant(rs.getObject("pending_marked_at", OffsetDateTime.class)),
+            rs.getObject("regularized_by", UUID.class),
+            instant(rs.getObject("regularized_at", OffsetDateTime.class)),
+            rs.getString("early_start_reason")));
   }
 
   private static Instant instant(OffsetDateTime value) {
