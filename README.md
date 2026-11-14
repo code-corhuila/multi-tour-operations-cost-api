@@ -7,9 +7,10 @@ Governance and documentation live in [`multi-tour-docs`](https://github.com/code
 
 ## What it is
 
-A Java 21 / Spring Boot 3.5 service in three Maven modules: `core` (the domain and its ports, no framework), `adapters` (HTTP, JDBC and the HTTP clients of other domains) and `app` (the composition root). It owns the departures of the tours (HU-OPS-001):
+A Java 21 / Spring Boot 3.5 service in three Maven modules: `core` (the domain and its ports, no framework), `adapters` (HTTP, JDBC and the HTTP clients of other domains) and `app` (the composition root). It owns the departures of the tours (HU-OPS-001) and the vehicles they use (HU-OPS-002, part A):
 
 - `POST /api/v1/operations-cost/departures` schedules a departure of a tour of the catalog (the Tenant Administrator, with an `Idempotency-Key`), and `PUT /api/v1/operations-cost/departures/{departureCode}/schedule` changes its date while it has no reservations. Both write the event of the change (`SalidaScheduled`, `SalidaRescheduled`) in the same transaction.
+- `POST` and `GET /api/v1/operations-cost/vehicles` register and list the vehicles of the tenant (name and capacity, with an `Idempotency-Key`). A departure takes `vehicleIds` when it is scheduled, and `POST /departures/{departureCode}/vehicles` adds vehicles to one that exists; a vehicle is never on two departures whose times overlap, and the capacity of a departure that needs transport is the lesser of the tour capacity and the capacity of its vehicles. Every change of vehicles writes `SalidaVehiclesChanged` in the same transaction.
 - The tour is read from `commercial-reservation` (its catalog) and the seats held from its list of departures, with the token of the caller; neither is ever read from its database.
 - Three internal routes under `/api/v1/operations-cost/internal/outbox`, open only to the SERVICE role, let job 7 (`multi-tour-worker-event-relay`) read the pending events and mark each one delivered or failed.
 - `GET /health` without a token, the validation of the RS256 token by the service itself, one error body for every failure, the correlation id, the limits of the server and of the database pool, and a 16 KB limit on a body.
@@ -28,7 +29,7 @@ In the schema `operations_cost` of the single PostgreSQL instance of `multi-tour
 
 ## What is missing
 
-The rest of the domain: the list and the read of a departure, the vehicles, the execution, the costs and the cancellation (HU-OPS-002 to HU-OPS-007); the check of the database in `/health`; `booked` is always 0 in the answers until the reservations of a departure are read for it; and `SalidaRescheduled` is published but no service consumes it yet. The declared gaps are in the specs of `07-api/specs/operations-cost/multi-tour-operations-cost-api/`.
+The rest of the domain: the list and the read of a departure, removing or replacing the vehicles of a departure (HU-OPS-002 part B, it waits for a route of `commercial-reservation` that lowers and restores the ceiling), the execution, the costs and the cancellation (HU-OPS-003 to HU-OPS-007); the check of the database in `/health`; `booked` is always 0 in the answers until the reservations of a departure are read for it; and `SalidaRescheduled` is published but no service consumes it yet. The declared gaps are in the specs of `07-api/specs/operations-cost/multi-tour-operations-cost-api/`.
 
 ## Branching
 
