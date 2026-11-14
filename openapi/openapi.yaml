@@ -1,14 +1,14 @@
 openapi: 3.0.3
 info:
   title: Multi Tour — operations-cost (the operations built so far)
-  version: 0.12.0
+  version: 0.13.0
   description: |
-    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.10.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
+    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.13.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
     only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
     differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
     service and tested apart), `Departure` flattened without `mark` and the typed lists, and the
     error body, the paging parameters and the paging meta defined here instead of in `_shared.yaml`; in `rescheduleDeparture` and `recordExtraordinaryCancellation` the tags and the extensions `x-hu` and `x-permission` are left out. Since 0.5.0 (HU-OPS-003 part A) `booked` of the list, of the reading and of the start and the end is the seats held that commercial-reservation keeps; the answers of scheduling, rescheduling and adding vehicles still answer 0. The mark of pending regularization is the field `pendingRegularization`, always `false` until part B. The design contract
-    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Since 0.8.0 (HU-OPS-007) it adds `recordCost` and `listCosts`. Since 0.9.0 (HU-OPS-002 part B) it adds the two internal routes of the saga, `previewVehicleChange` and `replaceDepartureVehicles`. Since 0.10.0 (HU-OPS-005) it adds `recordExtraordinaryCancellation` and the cancellation of each reservation in `getDeparture`. Since 0.11.0 (HU-OPS-006) it adds the internal route `cancelDeparture`, the result `NOT_CARRIED_OUT` of `regularizeDeparture` and the `cancellation` of a departure. Since 0.12.0 (HU-OPS-008) it adds `registerNovelty`, offered only for the type `PERSONAL_EMERGENCY`, and the `novelties` of a departure. In this copy `RegisterNoveltyRequest` requires `affected`, which the design contract does not: only the personal emergency is offered, and the copy goes back to the design contract when the ordinary novelty is offered. The `novelties` are not answered to the exceptional access of the platform: the detail of an emergency can name health facts. Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `previewVehicleChange`, `replaceDepartureVehicles`, `cancelDeparture`, `recordExtraordinaryCancellation`, `registerNovelty`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
+    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Since 0.8.0 (HU-OPS-007) it adds `recordCost` and `listCosts`. Since 0.9.0 (HU-OPS-002 part B) it adds the two internal routes of the saga, `previewVehicleChange` and `replaceDepartureVehicles`. Since 0.10.0 (HU-OPS-005) it adds `recordExtraordinaryCancellation` and the cancellation of each reservation in `getDeparture`. Since 0.11.0 (HU-OPS-006) it adds the internal route `cancelDeparture`, the result `NOT_CARRIED_OUT` of `regularizeDeparture` and the `cancellation` of a departure. Since 0.12.0 (HU-OPS-008) it adds `registerNovelty`, offered only for the type `PERSONAL_EMERGENCY`, and the `novelties` of a departure. Since 0.13.0 (HU-IDA-004) every `Departure` answers its `timeZone`, the zone it keeps since it was scheduled. In this copy `RegisterNoveltyRequest` requires `affected`, which the design contract does not: only the personal emergency is offered, and the copy goes back to the design contract when the ordinary novelty is offered. The `novelties` are not answered to the exceptional access of the platform: the detail of an emergency can name health facts. Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `previewVehicleChange`, `replaceDepartureVehicles`, `cancelDeparture`, `recordExtraordinaryCancellation`, `registerNovelty`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`.
 paths:
   /health:
     get:
@@ -1280,11 +1280,16 @@ components:
             format: uuid
     Departure:
       type: object
-      required: [code, serviceId, status, scheduledStart, scheduledEnd, capacity, booked, pendingRegularization, startAlert, vehicles, interrupted]
+      required: [code, serviceId, status, scheduledStart, scheduledEnd, timeZone, capacity, booked, pendingRegularization, startAlert, vehicles, interrupted]
       properties:
         code:
           type: string
           pattern: '^SAL-[0-9]{3,6}$'
+        timeZone:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Since 0.13.0 (HU-IDA-004, api spec 012). The IANA zone the departure keeps since it was scheduled; a later change of the tenant's zone does not move it (PDR section 9, GAP-017)
         serviceId:
           type: string
           format: uuid
