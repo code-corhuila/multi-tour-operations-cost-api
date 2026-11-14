@@ -9,6 +9,7 @@ import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcOutbo
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcTransaction;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicleKeys;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicles;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.AddDepartureVehicles;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Catalog;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureRepository;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdGenerator;
@@ -118,9 +119,9 @@ class CompositionRoot {
 
   @Bean
   RescheduleDeparture rescheduleDeparture(
-      DepartureRepository departures, Outbox outbox, Reservations reservations, Catalog catalog, Transaction transaction,
-      IdGenerator ids, Clock clock) {
-    return new RescheduleDeparture(departures, outbox, reservations, catalog, transaction, ids, clock);
+      DepartureRepository departures, Outbox outbox, Reservations reservations, Catalog catalog, Vehicles vehicles,
+      Transaction transaction, IdGenerator ids, Clock clock) {
+    return new RescheduleDeparture(departures, outbox, reservations, catalog, vehicles, transaction, ids, clock);
   }
 
   @Bean
@@ -152,9 +153,16 @@ class CompositionRoot {
 
   @Bean
   ScheduleDeparture scheduleDeparture(
-      DepartureRepository departures, Outbox outbox, IdempotencyKeys keys, Catalog catalog, Transaction transaction,
-      IdGenerator ids, Clock clock) {
-    return new ScheduleDeparture(departures, outbox, keys, catalog, transaction, ids, clock);
+      DepartureRepository departures, Outbox outbox, IdempotencyKeys keys, Catalog catalog, Vehicles vehicles,
+      Transaction transaction, IdGenerator ids, Clock clock) {
+    return new ScheduleDeparture(departures, outbox, keys, catalog, vehicles, transaction, ids, clock);
+  }
+
+  @Bean
+  AddDepartureVehicles addDepartureVehicles(
+      DepartureRepository departures, Vehicles vehicles, Outbox outbox, Catalog catalog, Transaction transaction, IdGenerator ids,
+      Clock clock) {
+    return new AddDepartureVehicles(departures, vehicles, outbox, catalog, transaction, ids, clock);
   }
 
   @Bean
