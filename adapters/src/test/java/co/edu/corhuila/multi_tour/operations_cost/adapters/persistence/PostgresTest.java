@@ -71,7 +71,7 @@ abstract class PostgresTest {
   /** The use case over the real ports; the catalog says every tour is an active one of 12 seats. The clock ticks in microseconds, as the column keeps them. */
   static ScheduleDeparture useCase(Outbox events) {
     Catalog catalog = serviceId -> Optional.of(new CatalogTour(serviceId, CatalogTour.Type.TOUR, true, 12));
-    return new ScheduleDeparture(departures, events, keys, catalog, transaction, UUID::randomUUID,
+    return new ScheduleDeparture(departures, events, keys, catalog, vehicles, transaction, UUID::randomUUID,
         Clock.tick(Clock.systemUTC(), Duration.ofNanos(1_000)));
   }
 

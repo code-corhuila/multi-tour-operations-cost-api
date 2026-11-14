@@ -66,6 +66,15 @@ public final class JdbcDepartureRepository implements DepartureRepository {
   }
 
   @Override
+  public Optional<Departure> findForUpdate(UUID tenantId, UUID id) {
+    return jdbc.sql(SELECT + " WHERE tenant_id = :tenant AND salida_id = :id FOR UPDATE")
+        .param("tenant", tenantId)
+        .param("id", id)
+        .query(DepartureRow.MAPPER)
+        .optional();
+  }
+
+  @Override
   public Optional<Departure> findByCode(UUID tenantId, String code) {
     return jdbc.sql(SELECT + " WHERE tenant_id = :tenant AND code = :code")
         .param("tenant", tenantId)

@@ -6,10 +6,13 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Caller;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.CallerNotAllowedException;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.Role;
+import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.Vehicle;
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 import org.junit.jupiter.api.BeforeEach;
@@ -34,7 +37,7 @@ class ScheduleDepartureTest {
   void setUp() {
     world = new FakeWorld();
     world.tours.put(TOUR, new CatalogTour(TOUR, CatalogTour.Type.TOUR, true, 12));
-    schedule = new ScheduleDeparture(world, world, world, world, world, world, Clock.fixed(NOW, ZoneOffset.UTC));
+    schedule = new ScheduleDeparture(world, world, world, world, world, world, world, Clock.fixed(NOW, ZoneOffset.UTC));
   }
 
   private ScheduleDeparture.Command command(String key, UUID tour, Instant start, Instant end) {
@@ -226,5 +229,93 @@ class ScheduleDepartureTest {
           .as(String.valueOf(bad)).isInstanceOf(InvalidDataException.class);
     }
     assertThat(world.catalogCalls).isZero();
+  }
+
+  // ---- HU-OPS-002 (api spec 003): the departure is scheduled with its vehicles
+  private Vehicle vehicle(int n, int capacity, UUID tenant) {
+    Vehicle v = new Vehicle(new UUID(0, 2000 + n), tenant, "Vehicle " + n, capacity, ACCOUNT, NOW);
+    world.vehicleRows.put(v.id(), v);
+    return v;
+  }
+
+  private ScheduleDeparture.Command withVehicles(String key, UUID... vehicleIds) {
+    return new ScheduleDeparture.Command(admin, key, TOUR, START, START.plus(Duration.ofHours(8)), "America/Bogota", TRACE, List.of(vehicleIds));
+  }
+
+  @Test
+  void A_a_transport_tour_is_scheduled_with_its_vehicles_and_the_total_follows_the_scheduling_event() {
+    world.tours.put(TOUR, new CatalogTour(TOUR, CatalogTour.Type.TOUR, true, 18, true));
+    Vehicle van = vehicle(1, 12, TENANT);
+    Vehicle bus = vehicle(2, 30, TENANT);
+    ScheduleDeparture.Scheduled result = schedule.execute(withVehicles(KEY, van.id(), bus.id()));
+    assertThat(result.transportRequired()).isTrue();
+    assertThat(result.vehicles()).containsExactlyInAnyOrder(van, bus);
+    assertThat(world.assignments.get(result.departure().id())).containsExactlyInAnyOrder(van.id(), bus.id());
+    assertThat(world.events).extracting(OutboxEvent::eventType).containsExactly("SalidaScheduled", "SalidaVehiclesChanged");
+    assertThat(world.events.get(1).occurredAt()).isAfter(world.events.get(0).occurredAt());
+    assertThat(world.events.get(1).payload()).containsEntry("vehicleTotalCapacity", 42)
+        .containsEntry("salidaId", result.departure().id().toString());
+  }
+
+  @Test
+  void A_a_transport_tour_without_vehicles_is_scheduled_with_no_vehicle_event() {
+    world.tours.put(TOUR, new CatalogTour(TOUR, CatalogTour.Type.TOUR, true, 18, true));
+    ScheduleDeparture.Scheduled result = schedule.execute(command());
+    assertThat(result.vehicles()).isEmpty();
+    assertThat(world.events).extracting(OutboxEvent::eventType).containsExactly("SalidaScheduled");
+  }
+
+  @Test
+  void A_vehicles_for_a_tour_without_transport_are_refused_and_nothing_is_written() {
+    Vehicle van = vehicle(1, 12, TENANT);
+    assertThatThrownBy(() -> schedule.execute(withVehicles(KEY, van.id()))).isInstanceOf(BusinessRuleViolationException.class);
+    assertThat(world.departures).isEmpty();
+    assertThat(world.events).isEmpty();
+  }
+
+  @Test
+  void A_a_vehicle_on_an_overlapping_departure_is_refused_and_nothing_is_written() {
+    world.tours.put(TOUR, new CatalogTour(TOUR, CatalogTour.Type.TOUR, true, 18, true));
+    Vehicle van = vehicle(1, 12, TENANT);
+    Departure other = new Departure(new UUID(0, 1001), TENANT, "SAL-001", TOUR, START.plus(Duration.ofHours(2)), START.plus(Duration.ofHours(10)),
+        "America/Bogota", DepartureStatus.SCHEDULED, ACCOUNT, NOW);
+    world.departures.put(other.id(), other);
+    world.assignments.put(other.id(), new LinkedHashSet<>(Set.of(van.id())));
+    assertThatThrownBy(() -> schedule.execute(withVehicles(KEY, van.id())))
+        .isInstanceOf(BusinessRuleViolationException.class).hasMessageContaining("SAL-001");
+    assertThat(world.departures).containsOnlyKeys(other.id());
+    assertThat(world.events).isEmpty();
+    assertThat(world.keys).isEmpty();
+  }
+
+  @Test
+  void A_an_unknown_vehicle_or_one_of_another_tenant_is_refused() {
+    world.tours.put(TOUR, new CatalogTour(TOUR, CatalogTour.Type.TOUR, true, 18, true));
+    Vehicle foreign = vehicle(1, 12, new UUID(0, 0xab));
+    assertThatThrownBy(() -> schedule.execute(withVehicles(KEY, foreign.id()))).isInstanceOf(BusinessRuleViolationException.class);
+    assertThatThrownBy(() -> schedule.execute(withVehicles(KEY, new UUID(0, 9999)))).isInstanceOf(BusinessRuleViolationException.class);
+    assertThat(world.departures).isEmpty();
+  }
+
+  @Test
+  void A_the_vehicle_ids_are_at_most_twenty_and_without_repeats() {
+    world.tours.put(TOUR, new CatalogTour(TOUR, CatalogTour.Type.TOUR, true, 18, true));
+    Vehicle van = vehicle(1, 12, TENANT);
+    assertThatThrownBy(() -> schedule.execute(withVehicles(KEY, van.id(), van.id()))).isInstanceOf(InvalidDataException.class);
+    List<UUID> tooMany = java.util.stream.IntStream.range(0, 21).mapToObj(n -> new UUID(0, 5000 + n)).toList();
+    assertThatThrownBy(() -> schedule.execute(new ScheduleDeparture.Command(admin, KEY, TOUR, START, START, "America/Bogota", TRACE, tooMany)))
+        .isInstanceOf(InvalidDataException.class);
+  }
+
+  @Test
+  void A_the_repeat_with_the_same_key_answers_the_vehicles_of_the_departure_and_creates_nothing() {
+    world.tours.put(TOUR, new CatalogTour(TOUR, CatalogTour.Type.TOUR, true, 18, true));
+    Vehicle van = vehicle(1, 12, TENANT);
+    ScheduleDeparture.Scheduled first = schedule.execute(withVehicles(KEY, van.id()));
+    ScheduleDeparture.Scheduled again = schedule.execute(withVehicles(KEY, van.id()));
+    assertThat(again.created()).isFalse();
+    assertThat(again.vehicles()).containsExactly(van);
+    assertThat(again.departure()).isEqualTo(first.departure());
+    assertThat(world.events).hasSize(2);
   }
 }

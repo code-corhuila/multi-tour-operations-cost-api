@@ -3,16 +3,30 @@ package co.edu.corhuila.multi_tour.operations_cost.adapters.persistence;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.AddDepartureVehicles;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.BusinessRuleViolationException;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.CatalogTour;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Departure;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureStatus;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DuplicateKeyException;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.OutboxEvent;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.Caller;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.Role;
 import co.edu.corhuila.multi_tour.operations_cost.core.vehicle.Vehicle;
+import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
+import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -113,5 +127,108 @@ class PostgresVehiclesTest extends PostgresTest {
     assign(scheduled, van);
     assertThat(vehicles.ofDeparture(tenant, scheduled.id())).extracting(Vehicle::name).containsExactly("Bus", "Van 1");
     assertThat(vehicles.ofDeparture(UUID.randomUUID(), scheduled.id())).isEmpty();
+  }
+
+  private AddDepartureVehicles addOver(Outbox events) {
+    return new AddDepartureVehicles(departures, vehicles, events, serviceId -> Optional.of(new CatalogTour(serviceId, CatalogTour.Type.TOUR, true, 18, true)),
+        transaction, UUID::randomUUID, Clock.tick(Clock.systemUTC(), Duration.ofNanos(1_000)));
+  }
+
+  private static Caller admin(UUID tenant) {
+    return new Caller(ACCOUNT.toString(), tenant.toString(), Set.of(Role.TENANT_ADMINISTRATOR));
+  }
+
+  @Test
+  void I_vehicles_and_event_are_written_together_or_not_at_all() {
+    UUID tenant = UUID.randomUUID();
+    Vehicle van = newVehicle(tenant, "Van 1", 12);
+    vehicles.save(van);
+    Departure scheduled = departure(tenant, "SAL-001", START, END, DepartureStatus.SCHEDULED);
+    Outbox failing = new Outbox() {
+      @Override
+      public void add(OutboxEvent event) {
+        throw new IllegalStateException("the outbox is down");
+      }
+
+      @Override
+      public boolean waiting(UUID tenantId, UUID aggregateId, String eventType) {
+        return false;
+      }
+    };
+    assertThatThrownBy(() -> addOver(failing).execute(new AddDepartureVehicles.Command(admin(tenant), "SAL-001", List.of(van.id()), "trace-it")))
+        .isInstanceOf(IllegalStateException.class);
+    assertThat(vehicles.ofDeparture(tenant, scheduled.id())).isEmpty();
+    addOver(outbox).execute(new AddDepartureVehicles.Command(admin(tenant), "SAL-001", List.of(van.id()), "trace-it"));
+    assertThat(vehicles.ofDeparture(tenant, scheduled.id())).hasSize(1);
+    assertThat(count("outbox_event", tenant)).isEqualTo(1);
+  }
+
+  @Test
+  void I_two_assignments_at_once_only_one_wins() throws Exception {
+    UUID tenant = UUID.randomUUID();
+    Vehicle van = newVehicle(tenant, "Van 1", 12);
+    vehicles.save(van);
+    departure(tenant, "SAL-001", START, END, DepartureStatus.SCHEDULED);
+    departure(tenant, "SAL-002", START.plus(Duration.ofHours(1)), END.plus(Duration.ofHours(1)), DepartureStatus.SCHEDULED);
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    CountDownLatch go = new CountDownLatch(1);
+    try {
+      List<Callable<String>> work = List.of("SAL-001", "SAL-002").stream().<Callable<String>>map(code -> () -> {
+        go.await();
+        try {
+          addOver(outbox).execute(new AddDepartureVehicles.Command(admin(tenant), code, List.of(van.id()), "trace-it"));
+          return "won";
+        } catch (BusinessRuleViolationException refused) {
+          return "refused";
+        }
+      }).toList();
+      List<Future<String>> running = work.stream().map(pool::submit).toList();
+      go.countDown();
+      List<String> outcomes = new java.util.ArrayList<>();
+      for (Future<String> done : running) {
+        outcomes.add(done.get());
+      }
+      assertThat(outcomes).containsExactlyInAnyOrder("won", "refused");
+    } finally {
+      pool.shutdownNow();
+    }
+    assertThat(count("outbox_event", tenant)).isEqualTo(1);
+  }
+
+  @Test
+  void I_the_lock_of_a_departure_makes_a_second_request_wait_until_the_first_one_ends() throws Exception {
+    UUID tenant = UUID.randomUUID();
+    Departure scheduled = departure(tenant, "SAL-001", START, END, DepartureStatus.SCHEDULED);
+    CountDownLatch holding = new CountDownLatch(1);
+    CountDownLatch release = new CountDownLatch(1);
+    java.util.concurrent.atomic.AtomicLong secondLocked = new java.util.concurrent.atomic.AtomicLong();
+    java.util.concurrent.atomic.AtomicLong firstEnded = new java.util.concurrent.atomic.AtomicLong();
+    ExecutorService pool = Executors.newFixedThreadPool(2);
+    try {
+      Future<?> first = pool.submit(() -> transaction.run(() -> {
+        departures.findForUpdate(tenant, scheduled.id());
+        holding.countDown();
+        try {
+          release.await();
+          Thread.sleep(300);
+        } catch (InterruptedException e) {
+          Thread.currentThread().interrupt();
+        }
+        firstEnded.set(System.nanoTime());
+        return null;
+      }));
+      holding.await();
+      Future<?> second = pool.submit(() -> transaction.run(() -> {
+        departures.findForUpdate(tenant, scheduled.id());
+        secondLocked.set(System.nanoTime());
+        return null;
+      }));
+      release.countDown();
+      first.get();
+      second.get();
+    } finally {
+      pool.shutdownNow();
+    }
+    assertThat(secondLocked.get()).isGreaterThanOrEqualTo(firstEnded.get());
   }
 }
