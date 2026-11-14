@@ -10,12 +10,16 @@ import java.util.UUID;
 import java.util.function.Supplier;
 
 /** The ports of the departure as in-memory fakes, with a transaction that puts everything back when it fails. */
-final class FakeWorld implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Transaction, IdGenerator {
+final class FakeWorld implements DepartureRepository, Outbox, IdempotencyKeys, Catalog, Reservations, Transaction, IdGenerator {
 
   final Map<UUID, Departure> departures = new LinkedHashMap<>();
   final List<OutboxEvent> events = new ArrayList<>();
   final Map<String, UUID> keys = new HashMap<>();
   final Map<UUID, CatalogTour> tours = new HashMap<>();
+  final Map<UUID, Reservations.Seats> seats = new HashMap<>();
+  boolean reservationsDown;
+  boolean updateRefused;
+  int reservationCalls;
   boolean catalogDown;
   boolean outboxFails;
   UUID racedDeparture;
@@ -56,6 +60,34 @@ final class FakeWorld implements DepartureRepository, Outbox, IdempotencyKeys, C
   @Override
   public Optional<Departure> find(UUID tenantId, UUID id) {
     return Optional.ofNullable(departures.get(id)).filter(d -> d.tenantId().equals(tenantId));
+  }
+
+  @Override
+  public Optional<Departure> findByCode(UUID tenantId, String code) {
+    return departures.values().stream().filter(d -> d.tenantId().equals(tenantId) && d.code().equals(code)).findFirst();
+  }
+
+  @Override
+  public boolean updateSchedule(Departure from, Departure to) {
+    if (updateRefused || !departures.getOrDefault(from.id(), to).equals(from)) {
+      return false;
+    }
+    departures.put(to.id(), to);
+    return true;
+  }
+
+  @Override
+  public boolean waiting(UUID tenantId, UUID aggregateId, String eventType) {
+    return events.stream().anyMatch(e -> e.tenantId().equals(tenantId) && e.aggregateId().equals(aggregateId) && e.eventType().equals(eventType));
+  }
+
+  @Override
+  public Optional<Reservations.Seats> seatsOf(UUID serviceId, UUID departureId) {
+    reservationCalls++;
+    if (reservationsDown) {
+      throw new DependencyUnavailableException("reservations");
+    }
+    return Optional.ofNullable(seats.get(departureId));
   }
 
   @Override
