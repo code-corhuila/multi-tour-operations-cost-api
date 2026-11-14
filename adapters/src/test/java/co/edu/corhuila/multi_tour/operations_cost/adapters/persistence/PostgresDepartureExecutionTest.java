@@ -202,6 +202,19 @@ class PostgresDepartureExecutionTest extends PostgresTest {
   }
 
   @Test
+  void I_due_to_start_answers_the_scheduled_departures_of_the_tenant_whose_start_passed_oldest_first() {
+    UUID tenant = UUID.randomUUID();
+    Departure newer = began(tenant, NOW.minus(Duration.ofHours(3)));
+    Departure older = began(tenant, NOW.minus(Duration.ofHours(5)));
+    began(tenant, NOW.plus(Duration.ofHours(5)));
+    Departure running = began(tenant, NOW.minus(Duration.ofHours(6)));
+    assertThat(departures.updateExecution(running, running.start(NOW.minus(Duration.ofHours(6)), STARTER, NOW))).isTrue();
+    began(UUID.randomUUID(), NOW.minus(Duration.ofHours(7)));
+    assertThat(departures.dueToStart(tenant, NOW, 100)).containsExactly(older.code(), newer.code());
+    assertThat(departures.dueToStart(tenant, NOW, 1)).containsExactly(older.code());
+  }
+
+  @Test
   void I_two_overlapping_asks_never_take_the_same_departure() throws Exception {
     UUID tenant = UUID.randomUUID();
     Departure a = began(tenant, NOW.minus(Duration.ofDays(8)));

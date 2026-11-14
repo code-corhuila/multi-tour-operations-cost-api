@@ -33,6 +33,7 @@ import co.edu.corhuila.multi_tour.operations_cost.core.security.ApplyAccountSess
 import co.edu.corhuila.multi_tour.operations_cost.core.security.ExceptionalAccessAudit;
 import co.edu.corhuila.multi_tour.operations_cost.core.security.ProcessedEvents;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdempotencyKeys;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ListDueToStartDepartures;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.MarkPendingRegularization;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Outbox;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.RegularizeDeparture;
@@ -333,6 +334,11 @@ class CompositionRoot {
   MarkPendingRegularization markPendingRegularization(
       DepartureRepository departures, Outbox outbox, Transaction transaction, IdGenerator ids, Clock clock) {
     return new MarkPendingRegularization(departures, outbox, transaction, ids, clock);
+  }
+
+  @Bean
+  ListDueToStartDepartures listDueToStartDepartures(DepartureRepository departures, Clock clock) {
+    return new ListDueToStartDepartures(departures, clock);
   }
 
   @Bean
