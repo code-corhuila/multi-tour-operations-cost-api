@@ -10,6 +10,11 @@ import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcTrans
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicleKeys;
 import co.edu.corhuila.multi_tour.operations_cost.adapters.persistence.JdbcVehicles;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.AddDepartureVehicles;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureViews;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.FinishDeparture;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.GetDeparture;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.ListDepartures;
+import co.edu.corhuila.multi_tour.operations_cost.core.departure.StartDeparture;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.Catalog;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.DepartureRepository;
 import co.edu.corhuila.multi_tour.operations_cost.core.departure.IdGenerator;
@@ -163,6 +168,35 @@ class CompositionRoot {
       DepartureRepository departures, Vehicles vehicles, Outbox outbox, Catalog catalog, Transaction transaction, IdGenerator ids,
       Clock clock) {
     return new AddDepartureVehicles(departures, vehicles, outbox, catalog, transaction, ids, clock);
+  }
+
+  @Bean
+  DepartureViews departureViews(Catalog catalog, Reservations reservations, Vehicles vehicles) {
+    return new DepartureViews(catalog, reservations, vehicles);
+  }
+
+  @Bean
+  ListDepartures listDepartures(DepartureRepository departures, DepartureViews views) {
+    return new ListDepartures(departures, views);
+  }
+
+  @Bean
+  GetDeparture getDeparture(DepartureRepository departures, DepartureViews views) {
+    return new GetDeparture(departures, views);
+  }
+
+  @Bean
+  StartDeparture startDeparture(
+      DepartureRepository departures, Outbox outbox, IdempotencyKeys keys, DepartureViews views, Transaction transaction, IdGenerator ids,
+      Clock clock) {
+    return new StartDeparture(departures, outbox, keys, views, transaction, ids, clock);
+  }
+
+  @Bean
+  FinishDeparture finishDeparture(
+      DepartureRepository departures, Outbox outbox, IdempotencyKeys keys, DepartureViews views, Transaction transaction, IdGenerator ids,
+      Clock clock) {
+    return new FinishDeparture(departures, outbox, keys, views, transaction, ids, clock);
   }
 
   @Bean
