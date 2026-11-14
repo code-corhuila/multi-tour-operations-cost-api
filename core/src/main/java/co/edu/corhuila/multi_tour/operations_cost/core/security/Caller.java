@@ -7,11 +7,15 @@ import java.util.Set;
  * no other (RN-OPS-API-02). The role of the platform or of a service is never mixed with a role of a tenant, and a role of a
  * tenant always comes with one.
  */
-public record Caller(String subject, String tenantId, Set<Role> roles, Set<String> permissions) {
+public record Caller(String subject, String tenantId, Set<Role> roles, Set<String> permissions, ExceptionalAccess exceptional) {
 
   /** A caller whose token carries no permissions: the platform, the services and the people with none. */
   public Caller(String subject, String tenantId, Set<Role> roles) {
-    this(subject, tenantId, roles, Set.of());
+    this(subject, tenantId, roles, Set.of(), null);
+  }
+
+  public Caller(String subject, String tenantId, Set<Role> roles, Set<String> permissions) {
+    this(subject, tenantId, roles, permissions, null);
   }
 
   public Caller {
@@ -24,15 +28,22 @@ public record Caller(String subject, String tenantId, Set<Role> roles, Set<Strin
     roles = Set.copyOf(roles);
     permissions = permissions == null ? Set.of() : Set.copyOf(permissions);
     tenantId = tenantId == null || tenantId.isBlank() ? null : tenantId;
-    boolean ofTenant = roles.stream().anyMatch(Role::belongsToATenant);
-    if (ofTenant && roles.stream().anyMatch(r -> !r.belongsToATenant())) {
-      throw new IllegalArgumentException("The role of the platform or of a service is never mixed with a role of a tenant");
-    }
-    if (ofTenant && tenantId == null) {
-      throw new IllegalArgumentException("A role of a tenant needs the tenant");
-    }
-    if (!ofTenant && tenantId != null) {
-      throw new IllegalArgumentException("The platform and the services have no tenant");
+    if (exceptional != null) {
+      // the one case where the platform carries a tenant: an access to that tenant, which only reads (spec 012)
+      if (!roles.equals(Set.of(Role.PLATFORM_ADMINISTRATOR)) || tenantId == null) {
+        throw new IllegalArgumentException("An exceptional access is the Platform Administrator for one tenant");
+      }
+    } else {
+      boolean ofTenant = roles.stream().anyMatch(Role::belongsToATenant);
+      if (ofTenant && roles.stream().anyMatch(r -> !r.belongsToATenant())) {
+        throw new IllegalArgumentException("The role of the platform or of a service is never mixed with a role of a tenant");
+      }
+      if (ofTenant && tenantId == null) {
+        throw new IllegalArgumentException("A role of a tenant needs the tenant");
+      }
+      if (!ofTenant && tenantId != null) {
+        throw new IllegalArgumentException("The platform and the services have no tenant");
+      }
     }
   }
 
