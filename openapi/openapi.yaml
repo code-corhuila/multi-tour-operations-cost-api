@@ -1,9 +1,9 @@
 openapi: 3.0.3
 info:
   title: Multi Tour — operations-cost (the operations built so far)
-  version: 0.5.0
+  version: 0.6.0
   description: |
-    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.5.0) that the contract gate loads (ADR-004 D7). It keeps
+    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.6.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
     only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
     differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
     service and tested apart), `Departure` flattened without `mark` and the typed lists, and the
@@ -492,6 +492,47 @@ paths:
           $ref: '#/components/responses/Forbidden'
         '500':
           $ref: '#/components/responses/InternalError'
+  /api/v1/operations-cost/internal/departures/pending-regularization:
+    post:
+      tags: [Internal]
+      operationId: markPendingRegularization
+      summary: Mark the departures past their estimated end (job 3, HU-OPS-003 part B)
+      description: |
+        Marks as pending regularization, across tenants, up to `limit` departures `SCHEDULED` or `IN_EXECUTION` whose estimated end
+        has passed and that are not marked, oldest estimated end first. A state never changes by time (RN-EJE-001). Safe to repeat:
+        a departure already marked is skipped, and each one marked writes `SalidaMarkedPendienteDeRegularizacion` in the same
+        transaction. Answers only a count. **Requires:** `SERVICE` role.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        '200':
+          description: How many were marked in this ask
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [marked]
+                additionalProperties: false
+                properties:
+                  marked:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
   /api/v1/operations-cost/internal/outbox/{eventId}/published:
     parameters:
       - $ref: '#/components/parameters/EventIdPath'
@@ -731,7 +772,7 @@ components:
             format: uuid
     Departure:
       type: object
-      required: [code, serviceId, status, scheduledStart, scheduledEnd, capacity, booked, pendingRegularization, vehicles, interrupted]
+      required: [code, serviceId, status, scheduledStart, scheduledEnd, capacity, booked, pendingRegularization, startAlert, vehicles, interrupted]
       properties:
         code:
           type: string
@@ -741,7 +782,10 @@ components:
           format: uuid
         pendingRegularization:
           type: boolean
-          description: Since 0.5.0, the mark of a departure past its estimated end with no closing (PDR section 16); always `false` until part B of HU-OPS-003
+          description: Since 0.5.0, the mark of a departure past its estimated end with no closing (PDR section 16); set by job 3 since 0.6.0 and cleared when a person starts or finishes the departure
+        startAlert:
+          type: boolean
+          description: Since 0.6.0, true while the departure is `SCHEDULED` and its scheduled start has passed; derived by the service, never stored
         actualStart:
           type: string
           format: date-time

@@ -1,6 +1,8 @@
 package co.edu.corhuila.multi_tour.operations_cost.core.departure;
 
 import co.edu.corhuila.multi_tour.operations_cost.core.outbox.Page;
+import java.time.Instant;
+import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -36,6 +38,14 @@ public interface DepartureRepository {
    * departure never both win.
    */
   boolean updateExecution(Departure from, Departure to);
+
+  /**
+   * Up to {@code limit} open departures ({@code SCHEDULED} or {@code IN_EXECUTION}) of any tenant whose estimated end is not after
+   * {@code now} and that are not marked, oldest estimated end first, locked until the end of the transaction. A departure that
+   * another transaction holds is skipped, so two overlapping asks never take the same one. Only the job that marks them reads across
+   * tenants, and only through the service role.
+   */
+  List<Departure> lockOpenPastEnd(Instant now, int limit);
 
   /** One page of the departures of the tenant, most recent scheduled start first, optionally of one state. */
   Page<Departure> page(UUID tenantId, Optional<DepartureStatus> status, int page, int limit);

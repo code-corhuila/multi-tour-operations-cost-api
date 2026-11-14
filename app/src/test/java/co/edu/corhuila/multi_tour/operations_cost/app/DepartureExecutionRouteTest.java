@@ -120,6 +120,16 @@ class DepartureExecutionRouteTest extends ShellTest {
   }
 
   @Test
+  void C_list_and_get_answer_start_alert_only_for_a_scheduled_departure_past_its_start() {
+    departure(2, START.plus(Duration.ofDays(5)), DepartureStatus.SCHEDULED, TENANT);
+    departure(3, START.minus(Duration.ofDays(1)), DepartureStatus.IN_EXECUTION, TENANT);
+    Response list = as(administrator()).filter(Contract.filter()).get(DEPARTURES);
+    assertThat(list.jsonPath().getList("data.code")).containsExactly("SAL-002", "SAL-001", "SAL-003");
+    assertThat(list.jsonPath().getList("data.startAlert", Boolean.class)).containsExactly(false, true, false);
+    assertThat(as(administrator()).filter(Contract.filter()).get(DEPARTURES + "/SAL-001").jsonPath().getBoolean("startAlert")).isTrue();
+  }
+
+  @Test
   void C_the_list_pages_and_filters_by_status() {
     departure(2, START.plus(Duration.ofDays(1)), DepartureStatus.IN_EXECUTION, TENANT);
     Response page = as(administrator()).filter(Contract.filter()).queryParam("limit", 1).queryParam("page", 2).get(DEPARTURES);

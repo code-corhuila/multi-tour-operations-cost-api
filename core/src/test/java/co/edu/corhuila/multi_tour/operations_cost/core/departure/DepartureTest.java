@@ -28,6 +28,53 @@ class DepartureTest {
   }
 
   @Test
+  void D_start_alert_only_while_scheduled_and_past_the_start() {
+    assertThat(inState(DepartureStatus.SCHEDULED).startAlert(START.minusSeconds(1))).isFalse();
+    assertThat(inState(DepartureStatus.SCHEDULED).startAlert(START)).isTrue();
+    assertThat(inState(DepartureStatus.SCHEDULED).startAlert(START.plus(Duration.ofDays(1)))).isTrue();
+    for (DepartureStatus status : new DepartureStatus[] {DepartureStatus.IN_EXECUTION, DepartureStatus.FINISHED, DepartureStatus.CANCELLED}) {
+      assertThat(inState(status).startAlert(START.plus(Duration.ofDays(1)))).as(status.name()).isFalse();
+    }
+  }
+
+  private static final Instant END = START.plus(Duration.ofHours(8));
+
+  @Test
+  void D_the_mark_does_not_change_the_state() {
+    for (DepartureStatus status : new DepartureStatus[] {DepartureStatus.SCHEDULED, DepartureStatus.IN_EXECUTION}) {
+      Departure open = status == DepartureStatus.SCHEDULED ? inState(status) : inState(DepartureStatus.SCHEDULED).start(START, ACCOUNT, START);
+      Departure marked = open.markPending(END.plusSeconds(1));
+      assertThat(marked.status()).isEqualTo(status);
+      assertThat(marked.execution().pendingRegularization()).isTrue();
+      assertThat(marked.execution().pendingMarkedAt()).isEqualTo(END.plusSeconds(1));
+      assertThat(open.execution().pendingRegularization()).isFalse();
+    }
+  }
+
+  @Test
+  void D_a_departure_is_marked_only_when_open_unmarked_and_past_its_end() {
+    assertThatThrownBy(() -> inState(DepartureStatus.SCHEDULED).markPending(END.minusSeconds(1))).isInstanceOf(BusinessRuleViolationException.class);
+    assertThat(inState(DepartureStatus.SCHEDULED).markPending(END).execution().pendingRegularization()).isTrue();
+    assertThatThrownBy(() -> inState(DepartureStatus.FINISHED).markPending(END.plusSeconds(1))).isInstanceOf(InvalidStatusTransitionException.class);
+    assertThatThrownBy(() -> inState(DepartureStatus.CANCELLED).markPending(END.plusSeconds(1))).isInstanceOf(InvalidStatusTransitionException.class);
+    Departure marked = inState(DepartureStatus.SCHEDULED).markPending(END.plusSeconds(1));
+    assertThatThrownBy(() -> marked.markPending(END.plusSeconds(2))).isInstanceOf(InvalidStatusTransitionException.class);
+  }
+
+  @Test
+  void D_starting_or_finishing_a_marked_departure_clears_the_mark_and_keeps_its_moment() {
+    Instant markedAt = END.plusSeconds(1);
+    Departure started = inState(DepartureStatus.SCHEDULED).markPending(markedAt).start(START.plusSeconds(60), ACCOUNT, markedAt.plusSeconds(5));
+    assertThat(started.execution().pendingRegularization()).isFalse();
+    assertThat(started.execution().pendingMarkedAt()).isEqualTo(markedAt);
+    Departure finished = started.finish(markedAt.plusSeconds(2), ACCOUNT, markedAt.plusSeconds(5), null);
+    assertThat(finished.execution().pendingRegularization()).isFalse();
+    assertThat(finished.execution().pendingMarkedAt()).isEqualTo(markedAt);
+    Departure runningThenMarked = inState(DepartureStatus.SCHEDULED).start(START, ACCOUNT, START).markPending(markedAt);
+    assertThat(runningThenMarked.finish(markedAt.plusSeconds(1), ACCOUNT, markedAt.plusSeconds(5), null).execution().pendingRegularization()).isFalse();
+  }
+
+  @Test
   void D_born_scheduled_with_all_fields() {
     Departure departure = scheduled(START, START.plus(Duration.ofHours(8)));
     assertThat(departure.status()).isEqualTo(DepartureStatus.SCHEDULED);
@@ -90,6 +137,15 @@ class DepartureTest {
     assertThat(changed.id()).isEqualTo(ID);
     assertThat(changed.status()).isEqualTo(DepartureStatus.SCHEDULED);
     assertThat(departure.start()).as("the departure is immutable").isEqualTo(START);
+  }
+
+  @Test
+  void D_a_marked_departure_that_is_rescheduled_is_no_longer_pending_and_keeps_the_moment_of_its_mark() {
+    Departure marked = inState(DepartureStatus.SCHEDULED).markPending(END.plusSeconds(1));
+    Instant newStart = END.plus(Duration.ofDays(2));
+    Departure changed = marked.reschedule(newStart, newStart.plus(Duration.ofHours(6)), END.plusSeconds(5));
+    assertThat(changed.execution().pendingRegularization()).isFalse();
+    assertThat(changed.execution().pendingMarkedAt()).isEqualTo(END.plusSeconds(1));
   }
 
   @Test
