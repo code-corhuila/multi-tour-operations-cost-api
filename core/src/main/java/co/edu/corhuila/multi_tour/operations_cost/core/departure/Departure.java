@@ -107,6 +107,13 @@ public record Departure(
     }
   }
 
+  /** A reservation is cancelled extraordinarily only while the departure runs (RN-OPS-API-70). */
+  public void acceptExtraordinaryCancellation() {
+    if (status != DepartureStatus.IN_EXECUTION) {
+      throw new InvalidStatusTransitionException(status, "have a reservation cancelled extraordinarily");
+    }
+  }
+
   /**
    * The same departure, now running, with the real start that a person recorded (RN-EJE-001). The state is judged first; the
    * start is never earlier than the scheduled one and never later than the moment it is recorded.
