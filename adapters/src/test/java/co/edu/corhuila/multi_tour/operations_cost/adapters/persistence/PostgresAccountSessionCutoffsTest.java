@@ -32,6 +32,9 @@ class PostgresAccountSessionCutoffsTest extends PostgresTest {
     Instant later = FIRST.plusNanos(1_000);
     assertThat(cutoffs.keepLater(new AccountSessionCutoff(account, tenant, later))).as("one microsecond later").isTrue();
     assertThat(cutoffs.find(account)).contains(new AccountSessionCutoff(account, tenant, later));
+    Instant laterStill = later.plusSeconds(1);
+    assertThat(cutoffs.keepLater(new AccountSessionCutoff(account, null, laterStill))).as("a later event without its tenant").isTrue();
+    assertThat(cutoffs.find(account)).as("keeps the tenant it had").contains(new AccountSessionCutoff(account, tenant, laterStill));
 
     UUID platformAdmin = UUID.randomUUID();
     assertThat(cutoffs.keepLater(new AccountSessionCutoff(platformAdmin, null, FIRST))).isTrue();
