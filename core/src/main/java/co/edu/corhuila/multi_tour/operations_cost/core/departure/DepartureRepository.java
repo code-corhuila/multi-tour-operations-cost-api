@@ -47,6 +47,9 @@ public interface DepartureRepository {
    */
   List<Departure> lockOpenPastEnd(Instant now, int limit);
 
+  /** The codes of up to {@code limit} {@code SCHEDULED} departures of the tenant whose start is not after {@code now}, oldest start first. */
+  List<String> dueToStart(UUID tenantId, Instant now, int limit);
+
   /** One page of the departures of the tenant, most recent scheduled start first, optionally of one state. */
   Page<Departure> page(UUID tenantId, Optional<DepartureStatus> status, int page, int limit);
 }

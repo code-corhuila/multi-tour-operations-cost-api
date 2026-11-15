@@ -156,6 +156,21 @@ public final class JdbcDepartureRepository implements DepartureRepository {
   }
 
   @Override
+  public List<String> dueToStart(UUID tenantId, Instant now, int limit) {
+    return jdbc.sql("""
+            SELECT code FROM salida
+             WHERE tenant_id = :tenant AND status = 'SCHEDULED' AND starts_at <= :now
+             ORDER BY starts_at, code
+             LIMIT :limit
+            """)
+        .param("tenant", tenantId)
+        .param("now", utc(now))
+        .param("limit", limit)
+        .query(String.class)
+        .list();
+  }
+
+  @Override
   public Page<Departure> page(UUID tenantId, Optional<DepartureStatus> status, int page, int limit) {
     String filter = status.isPresent() ? " AND status = :status" : "";
     var count = jdbc.sql("SELECT count(*) FROM salida WHERE tenant_id = :tenant" + filter).param("tenant", tenantId);
