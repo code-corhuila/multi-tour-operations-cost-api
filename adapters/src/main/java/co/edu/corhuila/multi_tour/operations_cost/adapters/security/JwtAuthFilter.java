@@ -1,0 +1,184 @@
+package co.edu.corhuila.multi_tour.operations_cost.adapters.security;
+
+import co.edu.corhuila.multi_tour.operations_cost.adapters.http.ErrorBody;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.AccountSessionCutoffs;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.Caller;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.ExceptionalAccess;
+import co.edu.corhuila.multi_tour.operations_cost.core.security.Role;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.nimbusds.jose.JOSEException;
+import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.crypto.RSASSAVerifier;
+import com.nimbusds.jwt.JWTClaimsSet;
+import com.nimbusds.jwt.SignedJWT;
+import jakarta.servlet.FilterChain;
+import jakarta.servlet.ServletException;
+import jakarta.servlet.http.HttpServletRequest;
+import jakarta.servlet.http.HttpServletResponse;
+import java.io.IOException;
+import java.security.interfaces.RSAPublicKey;
+import java.text.ParseException;
+import java.time.Instant;
+import java.util.Date;
+import java.util.EnumSet;
+import java.util.List;
+import java.util.Set;
+import java.util.UUID;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.slf4j.MDC;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
+import org.springframework.http.HttpHeaders;
+import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
+import org.springframework.stereotype.Component;
+import org.springframework.web.filter.OncePerRequestFilter;
+
+/**
+ * Validates the token by itself (norm 5.3): algorithm exactly RS256, signed by the key of the security
+ * microservice, {@code exp} and {@code sub} required, 30 s of tolerance. A valid one becomes the
+ * {@link Caller} of the request; anything else is a 401 with the single envelope. Which routes need
+ * one is decided by {@link RouteGuard}. A token of an account issued before the cutoff of its sessions is a 401 too, and a cutoff that
+ * cannot be read is a 503, never a pass (api spec 013, RN-OPS-API-131 and -133).
+ */
+@Component
+@Order(Ordered.HIGHEST_PRECEDENCE + 10)
+public class JwtAuthFilter extends OncePerRequestFilter {
+
+  public static final String CALLER = JwtAuthFilter.class.getName() + ".caller";
+  private static final long LEEWAY_MILLIS = 30_000;
+
+  /** What an event keeps of its actor: the subject of the token is recorded as it comes. */
+  private static final int MAX_SUBJECT = 100;
+
+  private static final Logger LOG = LoggerFactory.getLogger(JwtAuthFilter.class);
+
+  private final RSASSAVerifier verifier;
+  private final ObjectMapper mapper;
+  private final AccountSessionCutoffs cutoffs;
+
+  JwtAuthFilter(RSAPublicKey key, ObjectMapper mapper, AccountSessionCutoffs cutoffs) {
+    this.verifier = new RSASSAVerifier(key);
+    this.mapper = mapper;
+    this.cutoffs = cutoffs;
+  }
+
+  /** A token that passed the signature, with the instant it was issued at (null when it carries none). */
+  private record Verified(Caller caller, Instant issuedAt) {}
+
+  @Override
+  protected boolean shouldNotFilter(HttpServletRequest request) {
+    return !RouteGuard.needsToken(request.getRequestURI());
+  }
+
+  @Override
+  protected void doFilterInternal(
+      HttpServletRequest request, HttpServletResponse response, FilterChain chain)
+      throws ServletException, IOException {
+    Verified token = verified(request.getHeader(HttpHeaders.AUTHORIZATION));
+    boolean revoked;
+    try {
+      revoked = token != null && revoked(token);
+    } catch (RuntimeException unreadable) {
+      LOG.error("The cutoff of the sessions could not be read", unreadable);
+      response.setStatus(HttpStatus.SERVICE_UNAVAILABLE.value());
+      response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+      mapper.writeValue(response.getOutputStream(), new ErrorBody("SERVICE_UNAVAILABLE",
+          "A service this operation needs is not available; try again", null, MDC.get("traceId")));
+      return;
+    }
+    if (token == null || revoked) {
+      response.setStatus(HttpStatus.UNAUTHORIZED.value());
+      response.setHeader(HttpHeaders.WWW_AUTHENTICATE, "Bearer");
+      response.setContentType(MediaType.APPLICATION_JSON_VALUE);
+      mapper.writeValue(
+          response.getOutputStream(), ErrorBody.of(HttpStatus.UNAUTHORIZED, MDC.get("traceId")));
+      return;
+    }
+    request.setAttribute(CALLER, token.caller());
+    chain.doFilter(request, response);
+  }
+
+  /** Whether the sessions of the account of the token were cut after it was issued. A subject that is not an account id has no cutoff. */
+  private boolean revoked(Verified token) {
+    UUID account;
+    try {
+      account = canonicalUuid(token.caller().subject());
+    } catch (IllegalArgumentException notAnAccount) {
+      return false;
+    }
+    return cutoffs.find(account).filter(cutoff -> cutoff.refuses(token.issuedAt())).isPresent();
+  }
+
+  /** The caller of a valid token, or null for anything that is not one (a role the service does not know included). */
+  private Verified verified(String authorization) {
+    if (authorization == null || !authorization.regionMatches(true, 0, "Bearer ", 0, 7)) {
+      return null;
+    }
+    try {
+      SignedJWT jwt = SignedJWT.parse(authorization.substring(7).trim());
+      if (!JWSAlgorithm.RS256.equals(jwt.getHeader().getAlgorithm()) || !jwt.verify(verifier)) {
+        return null;
+      }
+      JWTClaimsSet claims = jwt.getJWTClaimsSet();
+      Date expiry = claims.getExpirationTime();
+      if (expiry == null || expiry.getTime() + LEEWAY_MILLIS < System.currentTimeMillis()) {
+        return null;
+      }
+      Date notBefore = claims.getNotBeforeTime();
+      if (notBefore != null && notBefore.getTime() - LEEWAY_MILLIS > System.currentTimeMillis()) {
+        return null;
+      }
+      String subject = claims.getSubject();
+      if (subject == null || subject.isBlank() || subject.length() > MAX_SUBJECT || !subject.equals(subject.strip())
+          || subject.codePoints().anyMatch(JwtAuthFilter::disguises)) {
+        return null;
+      }
+      // only the marks this service understands pass: `restricted` (it still opens nothing here), the access of the platform to one
+      // tenant (`exceptional`, `emergency`, spec 012) and none. The token of a temporary credential (`password-change`) only serves
+      // the route that chooses a password, in the security service
+      String access = claims.getStringClaim("access");
+      ExceptionalAccess exceptional = null;
+      if (access != null && !"restricted".equals(access)) {
+        if (!"exceptional".equals(access) && !"emergency".equals(access)) {
+          return null;
+        }
+        // the fact of each use carries the tenant as an id, so a tenant that is not one is a refusal here and never a 500 later
+        canonicalUuid(claims.getStringClaim("tenantId"));
+        List<String> scope = claims.getStringListClaim("scope");
+        exceptional = new ExceptionalAccess(access, scope == null ? Set.of() : Set.copyOf(scope), canonicalUuid(claims.getStringClaim("authorizationId")));
+      }
+      List<String> names = claims.getStringListClaim("roles");
+      Set<Role> roles = EnumSet.noneOf(Role.class);
+      for (String name : names == null ? List.<String>of() : names) {
+        roles.add(Role.valueOf(name));
+      }
+      // absent means none; a claim that is not a list of strings makes the whole token a refusal (it is caught below)
+      List<String> granted = claims.getStringListClaim("permissions");
+      Date issued = claims.getIssueTime();
+      return new Verified(new Caller(subject, claims.getStringClaim("tenantId"), roles, granted == null ? Set.of() : Set.copyOf(granted), exceptional),
+          issued == null ? null : issued.toInstant());
+    } catch (ParseException | JOSEException | RuntimeException e) {
+      // anything a hostile but signed token can provoke is a refusal, never a server error
+      return null;
+    }
+  }
+
+  /** The id of an access in its canonical 36 characters: the lax parser of the platform would let odd forms reach an audit fact. */
+  private static UUID canonicalUuid(String text) {
+    UUID id = UUID.fromString(text);
+    if (!id.toString().equalsIgnoreCase(text)) {
+      throw new IllegalArgumentException("Not a canonical UUID");
+    }
+    return id;
+  }
+
+  /** A subject is recorded as the actor of an event, so it cannot hold what disguises a line of the log. */
+  private static boolean disguises(int codePoint) {
+    return switch (Character.getType(codePoint)) {
+      case Character.CONTROL, Character.FORMAT, Character.LINE_SEPARATOR, Character.PARAGRAPH_SEPARATOR -> true;
+      default -> false;
+    };
+  }
+}

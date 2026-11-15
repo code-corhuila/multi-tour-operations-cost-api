@@ -1,0 +1,1773 @@
+openapi: 3.0.3
+info:
+  title: Multi Tour — operations-cost (the operations built so far)
+  version: 0.15.0
+  description: |
+    The copy of `07-api/contracts/openapi/operations-cost.yaml` (version 0.16.0, trimmed to what the service offers) that the contract gate loads (ADR-004 D7). It keeps
+    only the operations the service already offers, with the same bodies and codes; each slice adds its own. Accepted
+    differences from the design contract, to keep this copy self-contained: no `securitySchemes` (the token is judged by the
+    service and tested apart), `Departure` flattened without `mark` and the typed lists, and the
+    error body, the paging parameters and the paging meta defined here instead of in `_shared.yaml`; in `rescheduleDeparture` and `recordExtraordinaryCancellation` the tags and the extensions `x-hu` and `x-permission` are left out. Since 0.5.0 (HU-OPS-003 part A) `booked` of the list, of the reading and of the start and the end is the seats held that commercial-reservation keeps; the answers of scheduling, rescheduling and adding vehicles still answer 0. The mark of pending regularization is the field `pendingRegularization`, always `false` until part B. The design contract
+    lives in `multi-tour-docs`. Since 0.7.0 (HU-OPS-004) it adds `saveServices` and the reservations and the real base of `getDeparture`. Since 0.8.0 (HU-OPS-007) it adds `recordCost` and `listCosts`. Since 0.9.0 (HU-OPS-002 part B) it adds the two internal routes of the saga, `previewVehicleChange` and `replaceDepartureVehicles`. Since 0.10.0 (HU-OPS-005) it adds `recordExtraordinaryCancellation` and the cancellation of each reservation in `getDeparture`. Since 0.11.0 (HU-OPS-006) it adds the internal route `cancelDeparture`, the result `NOT_CARRIED_OUT` of `regularizeDeparture` and the `cancellation` of a departure. Since 0.12.0 (HU-OPS-008) it adds `registerNovelty`, offered only for the type `PERSONAL_EMERGENCY`, and the `novelties` of a departure. Since 0.13.0 (HU-IDA-004) every `Departure` answers its `timeZone`, the zone it keeps since it was scheduled. In this copy `RegisterNoveltyRequest` requires `affected`, which the design contract does not: only the personal emergency is offered, and the copy goes back to the design contract when the ordinary novelty is offered. The `novelties` are not answered to the exceptional access of the platform: the detail of an emergency can name health facts. Since 0.14.0 (HU-SEC-005, api spec 013) it adds the internal route `receivePlatformEvent`, where job 7 delivers `AccountSessionsRevoked`; `PlatformEventEnvelope` keeps its UUIDs and instants inline and says `additionalProperties: true` in the envelope and its payload, which the design contract leaves implicit (the same tolerance). Since 0.15.0 (HU-WRK-003, job 3 spec 002) it adds the internal route `listDueToStartDepartures`. Operations offered: `getHealth`, `listDepartures`, `saveServices`, `scheduleDeparture`, `getDeparture`, `registerStart`, `finishDeparture`, `rescheduleDeparture`, `createVehicle`, `listVehicles`, `addDepartureVehicles`, `previewVehicleChange`, `replaceDepartureVehicles`, `cancelDeparture`, `recordExtraordinaryCancellation`, `registerNovelty`, `listOutboxEvents`, `markOutboxEventPublished`, `recordOutboxEventAttempt`, `receivePlatformEvent`, `listDueToStartDepartures`.
+paths:
+  /health:
+    get:
+      operationId: getHealth
+      summary: Liveness, without a token
+      responses:
+        '200':
+          description: The service is alive
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, timestamp]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok]
+                  timestamp:
+                    type: string
+                    format: date-time
+  /api/v1/operations-cost/departures:
+    get:
+      operationId: listDepartures
+      summary: List the departures of the tenant (HU-OPS-003)
+      description: |
+        Most recent scheduled start first. Each row reads its tour and its seats from commercial-reservation, once per tour of the page.
+        A `limit` out of 1 to 100, a `page` below 1, an unknown `status` or an unknown parameter is `400`, never ignored. Departures of
+        another tenant never appear. **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION` (the Tenant Administrator and an
+        Operational Collaborator it was granted to).
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          schema:
+            $ref: '#/components/schemas/DepartureStatus'
+      responses:
+        '200':
+          description: A page of departures
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    maxItems: 100
+                    items:
+                      $ref: '#/components/schemas/Departure'
+                  meta:
+                    type: object
+                    required: [page, limit, total, totalPages]
+                    properties:
+                      page:
+                        type: integer
+                      limit:
+                        type: integer
+                      total:
+                        type: integer
+                      totalPages:
+                        type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: scheduleDeparture
+      summary: Schedule a departure of a tour (HU-OPS-001, RF-020, RN-SAL-001)
+      description: |
+        The Tenant Administrator schedules a departure of a tour of the catalog of their tenant; it is created `SCHEDULED` and
+        gets the next code `SAL-NNN` of the tenant. A repeat with the same `Idempotency-Key` answers `200` with the departure
+        already created. Since 0.4.0 (HU-OPS-002) it takes `vehicleIds`: for a tour that requires transport the departure starts
+        with those vehicles; a vehicle on another departure whose interval overlaps, an unknown vehicle, or vehicles for a tour that
+        does not require transport are `422 BUSINESS_RULE_VIOLATION`. **Requires:** `TENANT_ADMINISTRATOR`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ScheduleDepartureRequest'
+      responses:
+        '201':
+          description: Scheduled; returns the departure as it is now
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the departure already created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/departures/{departureCode}:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    get:
+      operationId: getDeparture
+      summary: Consult one departure (HU-OPS-003)
+      description: |
+        A departure of another tenant, or one that does not exist, is `404`. Its reservations and novelties come with HU-OPS-004.
+        **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+      responses:
+        '200':
+          description: The departure
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/departures/{departureCode}/executions:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    post:
+      operationId: registerStart
+      summary: Register the actual start of the departure (HU-OPS-003, RN-EJE-001)
+      description: |
+        Only a `SCHEDULED` departure can start (`422 INVALID_STATUS_TRANSITION` otherwise). A start earlier than the scheduled start,
+        or later than the moment it is recorded, is `422 BUSINESS_RULE_VIOLATION`. Writes `SalidaExecutionStarted` in the same
+        transaction. A repeat with the same `Idempotency-Key` answers `200`. **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/StartExecutionRequest'
+      responses:
+        '201':
+          description: Recorded; returns the departure as it is now
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the departure already recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/departures/{departureCode}/finish:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    post:
+      operationId: finishDeparture
+      summary: Finish or interrupt the departure (HU-OPS-003, PDR K1)
+      description: |
+        Only from `IN_EXECUTION` (`422 INVALID_STATUS_TRANSITION` otherwise). `INTERRUPTED` needs its `cause` and `FINISHED` takes none
+        (`400 VALIDATION_ERROR` otherwise); either way the departure ends `FINISHED`. An end earlier than the actual start, or later than
+        the moment it is recorded, is `422 BUSINESS_RULE_VIOLATION`. Writes `SalidaFinalized` in the same transaction. A repeat with the
+        same `Idempotency-Key` answers `200`. **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/FinishRequest'
+      responses:
+        '201':
+          description: Recorded; returns the departure as it is now
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the departure already recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/departures/{departureCode}/services:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    post:
+      operationId: saveServices
+      summary: Save what was delivered to each reservation of the departure (HU-OPS-004)
+      description: |
+        Only a departure in execution accepts it (`422 INVALID_STATUS_TRANSITION` otherwise). Each entry is a reservation of the departure that
+        is in execution; the travelers served go from 0 to the reserved ones, and every traveler not served needs the `cause`
+        (`400 VALIDATION_ERROR` otherwise). A no-show without notice is `NOT_DELIVERED` with `noShow`: the service stays charged. A reservation
+        that is not of the departure, not in execution, or more travelers served than reserved, is `422 BUSINESS_RULE_VIOLATION`. A repeat with
+        the same `Idempotency-Key` answers `200`. `503` when the reservations cannot be read; nothing is written.
+        **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SaveServicesRequest'
+      responses:
+        '201':
+          description: Recorded; returns the departure as it is now
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the departure already recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/departures/{departureCode}/reservations/{reservationId}/extraordinary-cancellation:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+      - $ref: '#/components/parameters/ReservationId'
+    post:
+      operationId: recordExtraordinaryCancellation
+      summary: Record the extraordinary cancellation of a reservation in execution (HU-OPS-005)
+      description: |
+        Only a departure in execution accepts it (`422 INVALID_STATUS_TRANSITION` otherwise), and only for one of its reservations that is in
+        execution and not already cancelled (`422 BUSINESS_RULE_VIOLATION`). It does not change the reservation: it writes the event
+        `ExtraordinaryCancellationRecorded` for its owner and leaves the decision to reschedule or to refund pending. A repeat with the same
+        `Idempotency-Key` answers `200`. `503` when the reservations cannot be read; nothing is written.
+        **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordExtraordinaryCancellationRequest'
+      responses:
+        '201':
+          description: Recorded; returns the departure as it is now
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the departure already recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/departures/{departureCode}/novelties:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    post:
+      operationId: registerNovelty
+      summary: Record the personal emergency of a reservation in execution (HU-OPS-008)
+      description: |
+        Since 0.12.0 only `PERSONAL_EMERGENCY` is offered; `NOVELTY` is `422 BUSINESS_RULE_VIOLATION`. `affected` is required, from 1, and
+        above the travelers of the reservation is `422 BUSINESS_RULE_VIOLATION`; `detail` is 1 to 1000 characters (`400` otherwise). Only a
+        departure `IN_EXECUTION` accepts it (`422 INVALID_STATUS_TRANSITION`), for a reservation of that departure that is in execution and
+        has no personal emergency yet (`422 BUSINESS_RULE_VIOLATION`). Writes `PersonalEmergencyRecorded` in the same transaction as the
+        record and the key; a repeat with the same `Idempotency-Key` answers `200`. `503` when the reservations cannot be read.
+        **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterNoveltyRequest'
+      responses:
+        '201':
+          description: Recorded; returns the departure as it is now, with its novelties
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the departure already recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/operations-cost/departures/{departureCode}/costs:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    get:
+      operationId: listCosts
+      summary: The operational costs of the departure with their total (HU-OPS-007)
+      description: |
+        The lines in the order recorded, their total, the travelers served and the catalogued cost when the tour has one. `503` when the
+        catalog cannot be read. **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+      responses:
+        '200':
+          description: The sheet of costs
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CostSheet'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+    post:
+      operationId: recordCost
+      summary: Record an operational cost of the departure (HU-OPS-007, RF-009)
+      description: |
+        Only a departure `IN_EXECUTION` or `FINISHED` accepts it (`422 INVALID_STATUS_TRANSITION` otherwise). A `CALCULATED` cost takes its
+        amount from the catalogued cost of the tour and the travelers served; it is `422 BUSINESS_RULE_VIOLATION` when the tour has no
+        parametrized cost or no travelers served are recorded. A `MANUAL` cost carries its amount, and when the tour has no parametrized
+        cost it needs its `justification` (`422 BUSINESS_RULE_VIOLATION` otherwise). A repeat with the same `Idempotency-Key` answers
+        `200`. Writes `OperationalCostRecorded`. **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordCostRequest'
+      responses:
+        '201':
+          description: Recorded; returns the line
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationalCost'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the line already recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OperationalCost'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/departures/{departureCode}/regularization:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    post:
+      operationId: regularizeDeparture
+      summary: Regularize a departure past its estimated end that never started (HU-OPS-003 part B)
+      description: |
+        Only a `SCHEDULED` departure with `pendingRegularization` true (another state is `422 INVALID_STATUS_TRANSITION`; a marked
+        `IN_EXECUTION` one is closed with `finishDeparture`). `EXECUTED` and `INTERRUPTED` need `actualStart` and `actualEnd`;
+        `INTERRUPTED` also needs `interruption`; a start earlier than scheduled needs `earlyStartReason` and a reason with a later
+        start is `400`. A start later than now, or an end before the start or later than now, is `422 BUSINESS_RULE_VIOLATION`.
+        Writes `SalidaExecutionStarted` and `SalidaFinalized`. `NOT_CARRIED_OUT` needs `notCarriedOutCause` (1 to 500 characters, `400`
+        otherwise), takes no hours, no interruption and no early start reason, cancels the departure and writes `SalidaCancelled`
+        instead. A repeat with the same `Idempotency-Key` answers `200`. **Requires:** the permission `MANAGE_DEPARTURE_EXECUTION`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegularizeRequest'
+      responses:
+        '201':
+          description: Recorded; returns the departure as it is now
+          headers:
+            Location:
+              $ref: '#/components/headers/Location'
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the departure already recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/operations-cost/departures/{departureCode}/schedule:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    put:
+      operationId: rescheduleDeparture
+      summary: Change the date or the time of a scheduled departure (HU-OPS-001, RN-SAL-001)
+      description: |
+        Replaces the start and the estimated end of a departure that is `SCHEDULED` and has no reservations (AC3), keeping its code
+        and its state. A departure with reservations is never changed: `422 BUSINESS_RULE_VIOLATION` (AC4). A departure that is
+        not `SCHEDULED` is `422 INVALID_STATUS_TRANSITION`. Setting what is already set answers `200` and records nothing. A
+        departure of another tenant is `404`. **Requires:** `TENANT_ADMINISTRATOR`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RescheduleDepartureRequest'
+      responses:
+        '200':
+          description: The departure as it is now
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/vehicles:
+    get:
+      operationId: listVehicles
+      summary: List the vehicles of the tenant (HU-OPS-002)
+      description: Sorted by name. Those of another tenant never appear. **Requires:** `TENANT_ADMINISTRATOR`.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: A page of vehicles
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    maxItems: 100
+                    items:
+                      $ref: '#/components/schemas/Vehicle'
+                  meta:
+                    type: object
+                    required: [page, limit, total, totalPages]
+                    properties:
+                      page:
+                        type: integer
+                      limit:
+                        type: integer
+                      total:
+                        type: integer
+                      totalPages:
+                        type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+    post:
+      operationId: createVehicle
+      summary: Register a vehicle of the tenant (HU-OPS-002 AC1, RF-020)
+      description: |
+        A name of 1 to 60 characters and a capacity from 1 to 100 seats. A name already used by another vehicle of the tenant
+        (upper and lower case and the spaces around it ignored) is `422 BUSINESS_RULE_VIOLATION`. A repeat with the same
+        `Idempotency-Key` answers `200` with the vehicle already created. **Requires:** `TENANT_ADMINISTRATOR`.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateVehicleRequest'
+      responses:
+        '201':
+          description: Registered
+          headers:
+            Location:
+              description: Where the vehicles of the tenant are listed
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        '200':
+          description: Repeated request with the same `Idempotency-Key`; returns the vehicle already created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Vehicle'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/operations-cost/departures/{departureCode}/vehicles:
+    parameters:
+      - $ref: '#/components/parameters/DepartureCode'
+    post:
+      operationId: addDepartureVehicles
+      summary: Add vehicles to a scheduled departure (HU-OPS-002 AC2, AC3, AC5)
+      description: |
+        Adds the vehicles to a `SCHEDULED` departure of a tour that requires transport; a vehicle already on it changes nothing, so
+        a repeat answers `200` with the same departure and writes nothing. The new total goes to `commercial-reservation` through
+        `SalidaVehiclesChanged`, written in the same transaction. A vehicle on another departure whose interval overlaps, an unknown
+        vehicle, or a tour that does not require transport are `422 BUSINESS_RULE_VIOLATION`; a departure that is not `SCHEDULED`
+        is `422 INVALID_STATUS_TRANSITION`; a departure of another tenant is `404`. Nothing here removes a vehicle (part B).
+        **Requires:** `TENANT_ADMINISTRATOR`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AddDepartureVehiclesRequest'
+      responses:
+        '200':
+          description: The departure with its vehicles and its effective capacity
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+  /api/v1/operations-cost/internal/events:
+    post:
+      tags: [Internal]
+      operationId: receivePlatformEvent
+      summary: Receive the revocation of the sessions of an account
+      description: |
+        Where job 7 delivers `AccountSessionsRevoked` (ADR-004 D4, D5). No tenant in the path: the account of a Platform Administrator
+        has none. The service keeps the cutoff `payload.revokedFrom`, which never moves back, and answers `401` to a token of that
+        account whose `iat` (in whole seconds) is earlier than it, on every route that asks for a token; if the cutoff cannot be read
+        the answer is `503`, never a pass. The `Idempotency-Key` is the id of the event: the first delivery answers `201`; a repeat of
+        the id, or an instant not later than the cutoff kept, answers `200` and changes nothing. `aggregateId` must be
+        `payload.accountId`. **Requires:** `SERVICE` role (a person's token gets `403`); never routed by the gateway. The body is
+        tolerant of fields it does not name, up to 16 KB.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PlatformEventEnvelope'
+      responses:
+        '201':
+          description: The cutoff was kept or moved forward
+        '200':
+          description: The event changed nothing, because it was already received or its instant is not later than the cutoff kept
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '413':
+          description: The body is larger than 16 KB
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorResponse'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/operations-cost/internal/outbox:
+    get:
+      operationId: listOutboxEvents
+      summary: Read the events waiting
+      description: The pending events whose next attempt is due, oldest first, in pages. **Requires:** `SERVICE` role.
+      parameters:
+        - name: page
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            default: 1
+        - name: limit
+          in: query
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [PENDING]
+            default: PENDING
+      responses:
+        '200':
+          description: The events waiting
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/OutboxEvent'
+                  meta:
+                    type: object
+                    required: [page, limit, total, totalPages]
+                    properties:
+                      page:
+                        type: integer
+                      limit:
+                        type: integer
+                      total:
+                        type: integer
+                      totalPages:
+                        type: integer
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/operations-cost/internal/departures/pending-regularization:
+    post:
+      tags: [Internal]
+      operationId: markPendingRegularization
+      summary: Mark the departures past their estimated end (job 3, HU-OPS-003 part B)
+      description: |
+        Marks as pending regularization, across tenants, up to `limit` departures `SCHEDULED` or `IN_EXECUTION` whose estimated end
+        has passed and that are not marked, oldest estimated end first. A state never changes by time (RN-EJE-001). Safe to repeat:
+        a departure already marked is skipped, and each one marked writes `SalidaMarkedPendienteDeRegularizacion` in the same
+        transaction. Answers only a count. **Requires:** `SERVICE` role.
+      parameters:
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 500
+            default: 100
+      responses:
+        '200':
+          description: How many were marked in this ask
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [marked]
+                additionalProperties: false
+                properties:
+                  marked:
+                    type: integer
+                    minimum: 0
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/operations-cost/internal/tenants/{tenantId}/departures/due-to-start:
+    get:
+      tags: [Internal]
+      operationId: listDueToStartDepartures
+      summary: List the scheduled departures of a tenant whose start has passed (job 3, HU-WRK-003)
+      description: |
+        Answers the codes of the `SCHEDULED` departures of the tenant in the path whose scheduled start has passed, oldest start first,
+        at most `limit`. It does not look at the state of the tenant and changes nothing (RN-OPS-API-140). Only codes of the tenant of
+        the path are answered. **Requires:** `SERVICE` role; a person's token is `403`.
+      x-hu: HU-WRK-003
+      x-permission: SERVICE
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+        - name: limit
+          in: query
+          required: false
+          schema:
+            type: integer
+            minimum: 1
+            maximum: 100
+            default: 20
+      responses:
+        '200':
+          description: The due departures of the tenant, oldest start first
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data]
+                additionalProperties: false
+                properties:
+                  data:
+                    type: array
+                    maxItems: 100
+                    items:
+                      type: object
+                      required: [departureCode]
+                      additionalProperties: false
+                      properties:
+                        departureCode:
+                          type: string
+                          pattern: '^SAL-[0-9]{3,6}$'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/operations-cost/internal/tenants/{tenantId}/departures/{departureCode}/vehicle-changes/preview:
+    post:
+      tags: [Internal]
+      operationId: previewVehicleChange
+      summary: Preview the capacity a new set of vehicles would give (HU-OPS-002 part B, saga step 0)
+      description: |
+        Answers the effective capacity of the departure today and the one the whole new set would give, and changes nothing. The
+        capacity is the lower of the capacity of the tour and the total of the vehicles when the tour requires transport (RN-SAL-001).
+        The same refusals as `replaceDepartureVehicles` are answered here, so the saga learns them before it touches anything:
+        `422 INVALID_STATUS_TRANSITION` when the departure is not `SCHEDULED`; `422 BUSINESS_RULE_VIOLATION` for an unknown vehicle, a vehicle
+        on another departure whose interval overlaps, or a tour that does not require transport. A departure of another tenant is `404`.
+        The catalog of the tour is read from `commercial-reservation` with the credential of the caller, so it is `503` when it cannot be read
+        (this needs that service to admit the `SERVICE` role on `getCatalogService`, gap G-API8-1). **Requires:** `SERVICE` role.
+      x-hu: HU-OPS-002
+      x-permission: SERVICE
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+        - $ref: '#/components/parameters/DepartureCode'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplaceDepartureVehiclesRequest'
+            example:
+              vehicleIds: [550e8400-e29b-41d4-a716-446655440010]
+      responses:
+        '200':
+          description: The capacity today and with the new set
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/VehicleChangePreview'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/operations-cost/internal/tenants/{tenantId}/departures/{departureCode}/vehicles:
+    put:
+      tags: [Internal]
+      operationId: replaceDepartureVehicles
+      summary: Put the whole new set of vehicles on a scheduled departure (HU-OPS-002 part B, saga step 2)
+      description: |
+        Replaces the vehicles of a `SCHEDULED` departure with exactly the set sent: vehicles absent from it are taken off and new ones
+        are put on. The new total goes to `commercial-reservation` through `SalidaVehiclesChanged`, written in the same transaction as
+        the change. The same set sent again (the same `Idempotency-Key`, or a departure that already has that set) answers `200` with the
+        same departure and writes nothing. Refusals, all with nothing changed: `422 INVALID_STATUS_TRANSITION` when the departure is not
+        `SCHEDULED`; `422 BUSINESS_RULE_VIOLATION` for an unknown vehicle, an overlap with another departure, or a tour that does not
+        require transport; `404` for a departure of another tenant. **Requires:** `SERVICE` role.
+      x-hu: HU-OPS-002
+      x-permission: SERVICE
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+        - $ref: '#/components/parameters/DepartureCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ReplaceDepartureVehiclesRequest'
+      responses:
+        '200':
+          description: The departure with its vehicles and its effective capacity, now
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Departure'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailable'
+
+  /api/v1/operations-cost/internal/tenants/{tenantId}/departures/{departureCode}/cancellation:
+    post:
+      tags: [Internal]
+      operationId: cancelDeparture
+      summary: Cancel a scheduled departure (HU-OPS-006, saga `cancel-departure` step 1)
+      description: |
+        Cancels a `SCHEDULED` departure for a cause not attributable to the customer and answers its id and the instant of the cancellation,
+        which the saga sends on to `commercial-reservation`. Idempotent by state: a departure already `CANCELLED` answers its original
+        instant, whatever the `Idempotency-Key`, and writes nothing (CA-029: a cancellation is never undone nor doubled). A departure that
+        is `IN_EXECUTION` or `FINISHED` is `422 INVALID_STATUS_TRANSITION`. `requestedByRole` `OPERATIONAL_COLLABORATOR` is `403` for a
+        departure that is not marked as pending regularization. It does not look at the state of the tenant, so a departure of an inactive
+        tenant is cancelled. A departure of another tenant is `404`. Writes `SalidaCancelled` in the same transaction.
+        **Requires:** `SERVICE` role.
+      x-hu: HU-OPS-006
+      x-permission: SERVICE
+      parameters:
+        - $ref: '#/components/parameters/TenantIdPath'
+        - $ref: '#/components/parameters/DepartureCode'
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CancelDepartureRequest'
+      responses:
+        '200':
+          description: Cancelled now or before; the original instant
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CancelDepartureAnswer'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '422':
+          $ref: '#/components/responses/Unprocessable'
+        '500':
+          $ref: '#/components/responses/InternalError'
+
+  /api/v1/operations-cost/internal/outbox/{eventId}/published:
+    parameters:
+      - $ref: '#/components/parameters/EventIdPath'
+    post:
+      operationId: markOutboxEventPublished
+      summary: Mark an event delivered
+      description: An event already published stays as it is; one given up is published too. **Requires:** `SERVICE` role.
+      responses:
+        '200':
+          description: The event is marked published
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboxEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+  /api/v1/operations-cost/internal/outbox/{eventId}/attempts:
+    parameters:
+      - $ref: '#/components/parameters/EventIdPath'
+    post:
+      operationId: recordOutboxEventAttempt
+      summary: Record a failed delivery
+      description: Adds one to the attempts, keeps the error and moves the next attempt; the 20th attempt gives the event up. **Requires:** `SERVICE` role.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OutboxAttemptRequest'
+      responses:
+        '200':
+          description: The attempt is recorded
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OutboxEvent'
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '403':
+          $ref: '#/components/responses/Forbidden'
+        '404':
+          $ref: '#/components/responses/NotFound'
+        '500':
+          $ref: '#/components/responses/InternalError'
+components:
+  parameters:
+    TenantIdPath:
+      name: tenantId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    EventIdPath:
+      name: eventId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+    DepartureCode:
+      name: departureCode
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^SAL-[0-9]{3,6}$'
+    ReservationId:
+      name: reservationId
+      in: path
+      required: true
+      description: A reservation of the departure, as `commercial-reservation` names it
+      schema:
+        type: string
+        format: uuid
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 8
+        maxLength: 128
+        pattern: '^\S+$'
+  headers:
+    Location:
+      description: Where the created departure can be read
+      schema:
+        type: string
+  schemas:
+    ErrorResponse:
+      type: object
+      required: [error, message, traceId]
+      properties:
+        error:
+          type: string
+        message:
+          type: string
+        details:
+          type: array
+          items:
+            type: object
+        traceId:
+          type: string
+    DepartureStatus:
+      type: string
+      enum: [SCHEDULED, IN_EXECUTION, FINISHED, CANCELLED]
+    OutboxEvent:
+      type: object
+      required: [eventId, eventType, eventVersion, tenantId, aggregateId, payload, correlationId, occurredAt, status, attempts, nextAttemptAt]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+        eventVersion:
+          type: integer
+          minimum: 1
+        tenantId:
+          type: string
+          format: uuid
+        aggregateId:
+          type: string
+          format: uuid
+        actorId:
+          type: string
+          nullable: true
+        reason:
+          type: string
+          nullable: true
+        payload:
+          type: object
+        correlationId:
+          type: string
+        occurredAt:
+          type: string
+          format: date-time
+        publishedAt:
+          type: string
+          format: date-time
+          nullable: true
+        status:
+          type: string
+          enum: [PENDING, PUBLISHED, FAILED]
+        attempts:
+          type: integer
+          minimum: 0
+        lastError:
+          type: string
+          nullable: true
+        nextAttemptAt:
+          type: string
+          format: date-time
+    PlatformEventEnvelope:
+      type: object
+      additionalProperties: true
+      description: The envelope of ADR-004 D4 for the events with no tenant in the path; fields it does not name are tolerated. Today only `AccountSessionsRevoked`.
+      required: [eventId, eventType, eventVersion, aggregateId, payload, occurredAt]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        eventType:
+          type: string
+          enum: [AccountSessionsRevoked]
+        eventVersion:
+          type: integer
+          minimum: 1
+        aggregateId:
+          type: string
+          format: uuid
+        payload:
+          type: object
+          required: [accountId, revokedFrom]
+          additionalProperties: true
+          properties:
+            accountId:
+              type: string
+              format: uuid
+            revokedFrom:
+              type: string
+              format: date-time
+            tenantId:
+              type: string
+              format: uuid
+        occurredAt:
+          type: string
+          format: date-time
+    OutboxAttemptRequest:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: string
+          minLength: 1
+          maxLength: 1000
+    RescheduleDepartureRequest:
+      type: object
+      required: [scheduledStart, scheduledEnd]
+      additionalProperties: false
+      properties:
+        scheduledStart:
+          type: string
+          format: date-time
+        scheduledEnd:
+          type: string
+          format: date-time
+    ScheduleDepartureRequest:
+      type: object
+      required: [serviceId, scheduledStart, scheduledEnd, timeZone]
+      additionalProperties: false
+      properties:
+        serviceId:
+          type: string
+          format: uuid
+        scheduledStart:
+          type: string
+          format: date-time
+        scheduledEnd:
+          type: string
+          format: date-time
+        timeZone:
+          type: string
+          minLength: 1
+          maxLength: 64
+        vehicleIds:
+          description: Since 0.4.0 (HU-OPS-002). Only for a tour that requires transport; none is accepted for a tour that does not
+          type: array
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    Vehicle:
+      type: object
+      required: [vehicleId, name, capacity]
+      additionalProperties: false
+      properties:
+        vehicleId:
+          type: string
+          format: uuid
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+        capacity:
+          type: integer
+          minimum: 1
+          maximum: 100
+    CreateVehicleRequest:
+      type: object
+      required: [name, capacity]
+      additionalProperties: false
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 60
+        capacity:
+          type: integer
+          minimum: 1
+          maximum: 100
+    ReplaceDepartureVehiclesRequest:
+      type: object
+      required: [vehicleIds]
+      additionalProperties: false
+      properties:
+        vehicleIds:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          description: The whole new set of vehicles of the departure, not the difference
+          items:
+            type: string
+            format: uuid
+    CancelDepartureRequest:
+      type: object
+      description: '`requestedBy` is the account of the person who asked, absent when job 3 asked (the system)'
+      additionalProperties: false
+      required: [cause]
+      properties:
+        cause:
+          type: string
+          enum: [NOT_ATTRIBUTABLE_TO_CUSTOMER]
+        requestedBy:
+          type: string
+          format: uuid
+        requestedByRole:
+          type: string
+          enum: [TENANT_ADMINISTRATOR, OPERATIONAL_COLLABORATOR]
+          description: Optional; the saga may send it (gap G-API6-1)
+    CancelDepartureAnswer:
+      type: object
+      additionalProperties: false
+      required: [departureId, cancelledAt]
+      properties:
+        departureId:
+          type: string
+          format: uuid
+        cancelledAt:
+          type: string
+          format: date-time
+    DepartureCancellation:
+      type: object
+      description: Present once the departure is `CANCELLED`; `cancelledBy` is absent when the system cancelled it
+      additionalProperties: false
+      required: [cancelledAt, cause]
+      properties:
+        cancelledAt:
+          type: string
+          format: date-time
+        cancelledBy:
+          type: string
+          format: uuid
+        cause:
+          type: string
+          enum: [NOT_ATTRIBUTABLE_TO_CUSTOMER, NOT_CARRIED_OUT]
+        reason:
+          type: string
+          maxLength: 500
+          description: The written cause of a regularization as not performed
+    VehicleChangePreview:
+      type: object
+      required: [departureId, currentEffectiveCapacity, newEffectiveCapacity]
+      additionalProperties: false
+      properties:
+        departureId:
+          type: string
+          format: uuid
+        currentEffectiveCapacity:
+          type: integer
+          minimum: 0
+        newEffectiveCapacity:
+          type: integer
+          minimum: 0
+    AddDepartureVehiclesRequest:
+      type: object
+      required: [vehicleIds]
+      additionalProperties: false
+      properties:
+        vehicleIds:
+          type: array
+          minItems: 1
+          maxItems: 20
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+    Departure:
+      type: object
+      required: [code, serviceId, status, scheduledStart, scheduledEnd, timeZone, capacity, booked, pendingRegularization, startAlert, vehicles, interrupted]
+      properties:
+        code:
+          type: string
+          pattern: '^SAL-[0-9]{3,6}$'
+        timeZone:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: Since 0.13.0 (HU-IDA-004, api spec 012). The IANA zone the departure keeps since it was scheduled; a later change of the tenant's zone does not move it (PDR section 9, GAP-017)
+        serviceId:
+          type: string
+          format: uuid
+        pendingRegularization:
+          type: boolean
+          description: Since 0.5.0, the mark of a departure past its estimated end with no closing (PDR section 16); set by job 3 since 0.6.0 and cleared when a person starts or finishes the departure
+        cancellation:
+          $ref: '#/components/schemas/DepartureCancellation'
+        startAlert:
+          type: boolean
+          description: Since 0.6.0, true while the departure is `SCHEDULED` and its scheduled start has passed; derived by the service, never stored
+        actualStart:
+          type: string
+          format: date-time
+        actualEnd:
+          type: string
+          format: date-time
+        interrupted:
+          type: boolean
+          description: Since 0.5.0, whether the departure ended as an interruption (PDR K1); `false` until it ends
+        interruptionCause:
+          type: string
+          maxLength: 1000
+          description: Since 0.5.0, present only when `interrupted` is true
+        status:
+          $ref: '#/components/schemas/DepartureStatus'
+        scheduledStart:
+          type: string
+          format: date-time
+        scheduledEnd:
+          type: string
+          format: date-time
+        capacity:
+          type: integer
+          description: Since 0.4.0, the effective capacity, the lower of `tourCapacity` and `vehicleCapacity` when the tour requires transport, `tourCapacity` otherwise
+        booked:
+          type: integer
+        tourCapacity:
+          type: integer
+          description: Since 0.4.0, the capacity of the tour in the catalog of `commercial-reservation`
+        vehicleCapacity:
+          type: integer
+          description: Since 0.4.0, the total capacity of the vehicles of the departure; `0` without vehicles
+        transportRequired:
+          type: boolean
+          description: Since 0.4.0, whether the tour requires transport, as the catalog says
+        vehicles:
+          type: array
+          maxItems: 20
+          description: Since 0.4.0 each vehicle with its id, name and capacity (it was a list of names)
+          items:
+            $ref: '#/components/schemas/Vehicle'
+        reservations:
+          type: array
+          description: Since 0.7.0 the reservations of the departure; omitted when `commercial-reservation` cannot be read
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/ReservationService'
+        travelersServed:
+          type: integer
+          minimum: 0
+          description: Since 0.7.0 the real base, the travelers served of the reservations recorded as `DELIVERED`; omitted when the reservations cannot be read
+        novelties:
+          type: array
+          maxItems: 200
+          description: Since 0.12.0 the personal emergencies of the departure, in the order recorded; the list is empty without them
+          items:
+            $ref: '#/components/schemas/Novelty'
+    RegisterNoveltyRequest:
+      type: object
+      additionalProperties: false
+      required: [reservationId, type, detail, affected]
+      properties:
+        reservationId:
+          type: string
+          format: uuid
+        type:
+          type: string
+          enum: [NOVELTY, PERSONAL_EMERGENCY]
+          description: Only `PERSONAL_EMERGENCY` is offered since 0.12.0
+        detail:
+          type: string
+          minLength: 1
+          maxLength: 1000
+        affected:
+          type: integer
+          minimum: 1
+          description: Travellers affected, from 1 up to the travellers of the reservation
+    Novelty:
+      type: object
+      required: [at, type, detail, who, reservationId]
+      properties:
+        at:
+          type: string
+          format: date-time
+        type:
+          type: string
+          enum: [NOVELTY, PERSONAL_EMERGENCY]
+        detail:
+          type: string
+        who:
+          type: string
+        reservationId:
+          type: string
+          format: uuid
+        affected:
+          type: integer
+    SaveServicesRequest:
+      type: object
+      additionalProperties: false
+      required: [services]
+      properties:
+        services:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: '#/components/schemas/ServiceEntry'
+    ServiceEntry:
+      type: object
+      additionalProperties: false
+      required: [reservationId, result, travelersServed]
+      properties:
+        reservationId:
+          type: string
+          format: uuid
+        result:
+          type: string
+          enum: [DELIVERED, NOT_DELIVERED]
+        travelersServed:
+          type: integer
+          minimum: 0
+          maximum: 1000
+          description: 0 when `NOT_DELIVERED`, 1 to the travelers reserved when `DELIVERED`; more than reserved is `422 BUSINESS_RULE_VIOLATION`
+        noShow:
+          type: boolean
+          default: false
+          description: A person who did not appear without timely notice; only with `NOT_DELIVERED`, the service stays charged
+        cause:
+          type: string
+          maxLength: 500
+          description: Required when `result` is `NOT_DELIVERED` or fewer travelers were served than reserved
+    ReservationService:
+      type: object
+      required: [reservationId, customer, travelers, state]
+      properties:
+        reservationId:
+          type: string
+          format: uuid
+        customer:
+          type: string
+        travelers:
+          type: integer
+          description: The travelers reserved, as `commercial-reservation` says them
+        state:
+          type: string
+          enum: [ELIGIBLE, NOT_ELIGIBLE, IN_EXECUTION, FINISHED, CANCELLED]
+        result:
+          type: string
+          enum: [DELIVERED, NOT_DELIVERED]
+        travelersServed:
+          type: integer
+          minimum: 0
+          description: Present once recorded
+        noShow:
+          type: boolean
+          description: Present once recorded
+        cause:
+          type: string
+        extraordinaryCancellation:
+          $ref: '#/components/schemas/ExtraordinaryCancellation'
+    ExtraordinaryCancellation:
+      type: object
+      description: Present once the reservation was cancelled extraordinarily
+      required: [justification, recordedBy, recordedAt]
+      properties:
+        justification:
+          type: string
+        recordedBy:
+          type: string
+          format: uuid
+        recordedAt:
+          type: string
+          format: date-time
+    RecordExtraordinaryCancellationRequest:
+      type: object
+      additionalProperties: false
+      required: [justification]
+      properties:
+        justification:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: The emergency that justifies the cancellation
+    RecordCostRequest:
+      type: object
+      additionalProperties: false
+      required: [concept, mode]
+      properties:
+        concept:
+          type: string
+          minLength: 1
+          maxLength: 200
+        mode:
+          type: string
+          enum: [CALCULATED, MANUAL]
+        amountCents:
+          type: integer
+          format: int64
+          minimum: 1
+          description: Required for `MANUAL` and refused for `CALCULATED`, whose amount the service computes
+        justification:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Required for a `MANUAL` cost when the tour has no parametrized cost, and refused otherwise
+    OperationalCost:
+      type: object
+      required: [costId, concept, amountCents, mode, withoutParametrization, recordedAt]
+      properties:
+        costId:
+          type: string
+          format: uuid
+        concept:
+          type: string
+        amountCents:
+          type: integer
+          format: int64
+        mode:
+          type: string
+          enum: [CALCULATED, MANUAL]
+        unitCostCents:
+          type: integer
+          format: int64
+        travelersServed:
+          type: integer
+        withoutParametrization:
+          type: boolean
+        justification:
+          type: string
+        recordedAt:
+          type: string
+          format: date-time
+    CostSheet:
+      type: object
+      required: [data, totalCents, travelersServed]
+      properties:
+        data:
+          type: array
+          maxItems: 500
+          items:
+            $ref: '#/components/schemas/OperationalCost'
+        totalCents:
+          type: integer
+          format: int64
+        travelersServed:
+          type: integer
+        baseCostCents:
+          type: integer
+          format: int64
+          description: The catalogued cost of the tour; absent when the tour has no parametrized cost
+    StartExecutionRequest:
+      type: object
+      additionalProperties: false
+      required: [startedAt]
+      properties:
+        startedAt:
+          type: string
+          format: date-time
+    RegularizeRequest:
+      type: object
+      additionalProperties: false
+      required: [result]
+      properties:
+        result:
+          type: string
+          enum: [EXECUTED, INTERRUPTED, NOT_CARRIED_OUT]
+        actualStart:
+          type: string
+          format: date-time
+        actualEnd:
+          type: string
+          format: date-time
+          description: Required for `EXECUTED` and `INTERRUPTED`, not sent for `NOT_CARRIED_OUT`
+        earlyStartReason:
+          type: string
+          maxLength: 500
+        interruption:
+          type: string
+          maxLength: 1000
+          description: Required for `INTERRUPTED`, and not allowed for `EXECUTED`
+        notCarriedOutCause:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Required for `NOT_CARRIED_OUT` and not allowed for another result
+    FinishRequest:
+      type: object
+      additionalProperties: false
+      required: [finishedAt, result]
+      properties:
+        finishedAt:
+          type: string
+          format: date-time
+        result:
+          type: string
+          enum: [FINISHED, INTERRUPTED]
+        cause:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Required when `result` is `INTERRUPTED`, and not allowed when it is `FINISHED`
+  responses:
+    BadRequest:
+      description: Validation error in the data sent
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unauthorized:
+      description: Token missing or not valid
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Forbidden:
+      description: The role does not allow this operation
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Unprocessable:
+      description: A business rule refuses it (BUSINESS_RULE_VIOLATION) or the state does not allow it (INVALID_STATUS_TRANSITION)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    InternalError:
+      description: Internal error
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: There is no such departure for the tenant of the token
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    ServiceUnavailable:
+      description: Another domain that the operation needs to read did not answer; nothing was written
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
