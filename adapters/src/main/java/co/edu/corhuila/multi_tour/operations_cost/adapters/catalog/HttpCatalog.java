@@ -56,8 +56,10 @@ public final class HttpCatalog implements Catalog {
   public Optional<CatalogTour> tour(UUID serviceId) {
     try {
       String serviceTenant = credentials.serviceTenantId();
+      String template = serviceTenant == null ? ITEM : INTERNAL_ITEM;
+      Object[] variables = serviceTenant == null ? new Object[] {serviceId} : new Object[] {serviceTenant, serviceId};
       return client.get()
-          .uri(serviceTenant == null ? ITEM : INTERNAL_ITEM, serviceTenant == null ? new Object[] {serviceId} : new Object[] {serviceTenant, serviceId})
+          .uri(template, variables)
           .header("Authorization", credentials.authorization())
           .header("X-Correlation-Id", credentials.correlationId())
           .header("Accept", "application/json")

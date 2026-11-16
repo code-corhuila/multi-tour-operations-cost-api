@@ -23,7 +23,7 @@ public class RequestCredentials implements HttpCatalog.Credentials {
   }
 
   // The routes that services call on this service carry the tenant in their path (/internal/tenants/{tenantId}/...) and only a service reaches them.
-  private static final Pattern INTERNAL = Pattern.compile("/internal/tenants/([0-9a-fA-F-]{36})/");
+  private static final Pattern INTERNAL = Pattern.compile("^/api/v1/operations-cost/internal/tenants/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/");
 
   @Override
   public String serviceTenantId() {

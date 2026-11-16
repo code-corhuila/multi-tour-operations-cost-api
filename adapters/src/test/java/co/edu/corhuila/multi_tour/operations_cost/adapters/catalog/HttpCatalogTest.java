@@ -140,6 +140,7 @@ class HttpCatalogTest {
         return "trace-43";
       }
 
+      @Override
       public String serviceTenantId() {
         return tenant;
       }
