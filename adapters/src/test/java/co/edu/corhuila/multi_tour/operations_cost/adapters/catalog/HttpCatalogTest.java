@@ -124,6 +124,36 @@ class HttpCatalogTest {
     assertThat(catalog.tour(TOUR).orElseThrow().capacity()).isZero();
   }
 
+  // G-API8-1, contract getInternalCatalogService: a service token has no tenant and the public route answers it 403, so the route that a
+  // service calls us on (the tenant is in its path) is read on the internal route of the catalog, with the same body.
+  @Test
+  void A_a_service_reads_the_item_on_the_internal_route_of_its_tenant_and_a_person_on_the_public_one() {
+    String tenant = "00000000-0000-4000-8000-0000000000aa";
+    HttpCatalog asService = new HttpCatalog("http://127.0.0.1:" + server.getAddress().getPort(), Duration.ofMillis(400), new HttpCatalog.Credentials() {
+      @Override
+      public String authorization() {
+        return "Bearer the-token-of-the-saga";
+      }
+
+      @Override
+      public String correlationId() {
+        return "trace-43";
+      }
+
+      public String serviceTenantId() {
+        return tenant;
+      }
+    });
+    body = item("TOUR", "ACTIVE", "12");
+
+    assertThat(asService.tour(TOUR)).contains(new CatalogTour(TOUR, CatalogTour.Type.TOUR, true, 12));
+    assertThat(requestedPath.get()).isEqualTo("/api/v1/commercial-reservation/internal/tenants/" + tenant + "/catalog/services/" + TOUR);
+    assertThat(authorization.get()).isEqualTo("Bearer the-token-of-the-saga");
+
+    catalog.tour(TOUR);
+    assertThat(requestedPath.get()).isEqualTo(PATH);
+  }
+
   @Test
   void A_it_forwards_the_credential_and_the_correlation_id_to_the_right_path() {
     body = item("TOUR", "ACTIVE", "12");
