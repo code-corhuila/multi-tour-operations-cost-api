@@ -1,5 +1,7 @@
 package co.edu.corhuila.multi_tour.operations_cost.adapters.catalog;
 
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import org.slf4j.MDC;
 import org.springframework.stereotype.Component;
 import org.springframework.web.context.request.RequestContextHolder;
@@ -18,6 +20,18 @@ public class RequestCredentials implements HttpCatalog.Credentials {
       }
     }
     throw new IllegalStateException("There is no request whose credential could be forwarded");
+  }
+
+  // The routes that services call on this service carry the tenant in their path (/internal/tenants/{tenantId}/...) and only a service reaches them.
+  private static final Pattern INTERNAL = Pattern.compile("/internal/tenants/([0-9a-fA-F-]{36})/");
+
+  @Override
+  public String serviceTenantId() {
+    if (RequestContextHolder.getRequestAttributes() instanceof ServletRequestAttributes attributes) {
+      Matcher found = INTERNAL.matcher(attributes.getRequest().getRequestURI());
+      return found.find() ? found.group(1) : null;
+    }
+    return null;
   }
 
   @Override
