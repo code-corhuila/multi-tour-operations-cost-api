@@ -23,12 +23,21 @@ public final class HttpCatalog implements Catalog {
 
   private static final Logger LOG = LoggerFactory.getLogger(HttpCatalog.class);
   private static final String ITEM = "/api/v1/commercial-reservation/catalog/services/{serviceId}";
+  private static final String INTERNAL_ITEM = "/api/v1/commercial-reservation/internal/tenants/{tenantId}/catalog/services/{serviceId}";
 
   /** What the request in course says about who asks: the Authorization header to forward and the correlation id. */
   public interface Credentials {
     String authorization();
 
     String correlationId();
+
+    /**
+     * The tenant of the path when a service, and not a person, is calling us (its token has no tenant, and the public route of the
+     * catalog answers it 403), else null. A service is read on the internal route of the catalog (getInternalCatalogService).
+     */
+    default String serviceTenantId() {
+      return null;
+    }
   }
 
   private final RestClient client;
@@ -46,8 +55,11 @@ public final class HttpCatalog implements Catalog {
   @Override
   public Optional<CatalogTour> tour(UUID serviceId) {
     try {
+      String serviceTenant = credentials.serviceTenantId();
+      String template = serviceTenant == null ? ITEM : INTERNAL_ITEM;
+      Object[] variables = serviceTenant == null ? new Object[] {serviceId} : new Object[] {serviceTenant, serviceId};
       return client.get()
-          .uri(ITEM, serviceId)
+          .uri(template, variables)
           .header("Authorization", credentials.authorization())
           .header("X-Correlation-Id", credentials.correlationId())
           .header("Accept", "application/json")
